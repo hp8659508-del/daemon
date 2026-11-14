@@ -72,15 +72,30 @@ export default function BingoBoard({
   );
 }
 
-/** A hand-drawn marker scratch: vertical through a column, or horizontal through a letter. */
+/** A crisp strike through the central axis of a completed column or letter. */
 function Scratch({ horizontal = false }: { horizontal?: boolean }) {
   return (
-    <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={horizontal ? "0 0 100 40" : "0 0 40 200"} preserveAspectRatio="none" aria-hidden>
+    <svg
+      className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      aria-hidden
+    >
       <path
-        d={horizontal ? "M4 22 C 25 16, 45 26, 62 19 S 88 22, 96 18" : "M22 4 C 14 40, 28 70, 18 100 S 26 160, 19 196"}
-        fill="none" stroke={horizontal ? "#E07A5F" : "#E07A5F"} strokeWidth={horizontal ? 5 : 5} strokeLinecap="round"
-        vectorEffect="non-scaling-stroke" opacity=".9"
-        style={{ strokeDasharray: 400, strokeDashoffset: 400, animation: "draw .6s cubic-bezier(.16,1,.3,1) forwards" }} />
+        d={horizontal ? "M 6 50 L 94 50" : "M 50 1 L 50 99"}
+        fill="none"
+        stroke="#E07A5F"
+        strokeWidth={5}
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        opacity={0.95}
+        pathLength={1}
+        style={{
+          strokeDasharray: 1,
+          strokeDashoffset: 0,
+          animation: "draw .4s cubic-bezier(.16,1,.3,1) forwards",
+        }}
+      />
     </svg>
   );
 }
