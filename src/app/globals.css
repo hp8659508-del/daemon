@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html { background: #05070d; }
+body { margin: 0; background: #070a12; color: #edf4ff; }
+button, input { font: inherit; }
+::selection { background: rgba(120, 177, 255, .35); color: white; }
+.panel { @apply rounded-2xl border border-white/10 bg-[#101725]/90 shadow-soft; }
+.field { @apply w-full rounded-xl border border-white/15 bg-[#0b111d] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-sky-300 focus:ring-4 focus:ring-sky-300/10; }
+.btn-primary { @apply inline-flex items-center justify-center rounded-xl border border-sky-200/30 bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_0_28px_rgba(67,148,255,.22)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50; }
+.btn-secondary { @apply inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10; }
+.glow-text { text-shadow: 0 0 24px rgba(124, 183, 255, .45); }
+.hourglass-grid { background-image: linear-gradient(rgba(128,170,225,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(128,170,225,.045) 1px, transparent 1px); background-size: 36px 36px; }
