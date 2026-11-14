@@ -54,12 +54,12 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#05070d] p-5 text-white">
+    <main className="flex min-h-screen items-center justify-center bg-white p-5 text-graphite">
       <form
         onSubmit={update}
         className="panel w-full max-w-md p-8"
       >
-        <p className="text-xs font-semibold uppercase tracking-[.2em] text-sky-300">
+        <p className="text-xs font-semibold uppercase tracking-[.2em] text-cobalt-ink">
           DAEMON HOUR / ACCOUNT SECURITY
         </p>
 
@@ -67,7 +67,7 @@ export default function ChangePasswordPage() {
           Change your password
         </h1>
 
-        <p className="mt-2 text-sm text-slate-400">
+        <p className="mt-2 text-sm text-muted">
           Set a new password before entering the auction workspace.
           Use at least 10 characters.
         </p>
@@ -95,13 +95,13 @@ export default function ChangePasswordPage() {
         />
 
         {message && (
-          <p className="mt-3 text-sm text-red-300" role="alert">
+          <p className="mt-3 text-sm text-err" role="alert">
             {message}
           </p>
         )}
 
         <button
-          className="btn-primary mt-5 w-full"
+          className="key-primary mt-5 w-full"
           disabled={busy}
           type="submit"
         >

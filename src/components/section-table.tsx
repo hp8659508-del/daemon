@@ -41,7 +41,7 @@ export async function SectionTable({
 
   if (item.adminOnly && !isAdmin) {
     return (
-      <div className="panel p-8 text-sm text-slate-600">
+      <div className="panel p-8 text-sm text-faint">
         You do not have permission to view this section.
       </div>
     );
@@ -65,50 +65,50 @@ export async function SectionTable({
   return (
     <>
       <div className="mb-7">
-        <p className="text-xs font-semibold uppercase tracking-[.2em] text-sky-300">
+        <p className="text-xs font-semibold uppercase tracking-[.2em] text-cobalt-ink">
           DAEMON HOUR / COMMAND DECK
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
           {item.title}
         </h1>
-        <p className="mt-2 text-sm text-slate-500">{item.description}</p>
+        <p className="mt-2 text-sm text-faint">{item.description}</p>
       </div>
 
       <section className="panel overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-silver px-5 py-4">
           <div className="font-semibold">{item.title}</div>
-          <span className="text-xs text-slate-400">Latest 100 records</span>
+          <span className="text-xs text-muted">Latest 100 records</span>
         </div>
 
         {error ? (
-          <div className="p-6 text-sm text-red-300">
+          <div className="p-6 text-sm text-err">
             Could not load {item.table}: {error.message}
           </div>
         ) : section === "transactions" ? (
           rows.length === 0 ? (
-            <div className="px-6 py-12 text-center text-sm text-slate-500">
+            <div className="px-6 py-12 text-center text-sm text-faint">
               No transactions found yet.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[650px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-white/10 bg-white/[.04]">
+                  <tr className="border-b border-silver bg-frost">
                     {isAdmin && (
-                      <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-sky-200/70">
+                      <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cobalt-ink">
                         Team Name
                       </th>
                     )}
-                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-sky-200/70">
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cobalt-ink">
                       Date
                     </th>
-                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-sky-200/70">
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cobalt-ink">
                       Description
                     </th>
-                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-sky-200/70">
+                    <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-cobalt-ink">
                       Type
                     </th>
-                    <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-wider text-sky-200/70">
+                    <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-wider text-cobalt-ink">
                       Points
                     </th>
                   </tr>
@@ -127,31 +127,31 @@ export async function SectionTable({
                     return (
                       <tr
                         key={String(row.id ?? index)}
-                        className="border-b border-white/10 last:border-0 hover:bg-white/[.03]"
+                        className="border-b border-silver last:border-0 hover:bg-frost"
                       >
                         {isAdmin && (
-                          <td className="px-5 py-4 font-semibold text-sky-200">
+                          <td className="px-5 py-4 font-semibold text-cobalt-ink">
                             {team?.team_name ?? "Team unavailable"}
                           </td>
                         )}
-                        <td className="whitespace-nowrap px-5 py-4 text-slate-400">
+                        <td className="whitespace-nowrap px-5 py-4 text-muted">
                           {date}
                         </td>
-                        <td className="px-5 py-4 text-slate-200">
+                        <td className="px-5 py-4 text-graphite">
                           {String(row.description ?? "—")}
                         </td>
                         <td className="px-5 py-4">
-                          <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1 text-xs capitalize text-sky-200">
+                          <span className="rounded-full border border-silver bg-frost px-3 py-1 text-xs capitalize text-cobalt-ink">
                             {String(row.transaction_type ?? "—")}
                           </span>
                         </td>
                         <td
                           className={`whitespace-nowrap px-5 py-4 text-right font-semibold ${
                             points > 0
-                              ? "text-emerald-300"
+                              ? "text-ok"
                               : points < 0
-                                ? "text-red-300"
-                                : "text-slate-400"
+                                ? "text-err"
+                                : "text-muted"
                           }`}
                         >
                           {points > 0 ? "+" : ""}
@@ -169,7 +169,7 @@ export async function SectionTable({
         )}
       </section>
 
-      <p className="mt-4 text-xs text-slate-400">
+      <p className="mt-4 text-xs text-muted">
         Your account only displays records permitted by its database access
         policies.
       </p>

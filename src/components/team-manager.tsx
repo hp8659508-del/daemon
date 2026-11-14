@@ -140,51 +140,51 @@ export default function TeamManager({
   return (
     <div className="space-y-8">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[.2em] text-sky-300">
+        <p className="text-xs font-semibold uppercase tracking-[.2em] text-cobalt-ink">
           DAEMON HOUR / COMMAND DECK
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
           Team management
         </h1>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-faint">
           Create team accounts and manage your event participants.
         </p>
       </div>
 
       <section className="panel p-6">
         <div className="mb-5 flex items-center gap-3">
-          <div className="rounded-xl border border-amber-200/20 bg-amber-200/10 p-3 text-amber-200"><Wallet size={20} /></div>
+          <div className="rounded-xl border border-frost bg-frost p-3 text-brass"><Wallet size={20} /></div>
           <div>
-            <h2 className="font-semibold text-white">Event starting points</h2>
-            <p className="mt-1 text-xs text-slate-500">Choose the same opening balance for every team and publish it when the event is ready.</p>
+            <h2 className="font-semibold text-graphite">Event starting points</h2>
+            <p className="mt-1 text-xs text-faint">Choose the same opening balance for every team and publish it when the event is ready.</p>
           </div>
         </div>
         {published ? (
-          <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/[.06] p-4">
-            <p className="text-sm font-semibold text-emerald-200">Starting points published</p>
-            <p className="mt-1 text-sm text-slate-300">{publishedAmount.toLocaleString("en-IN")} points were published to all teams. New teams will receive the same opening balance.</p>
+          <div className="rounded-xl border border-frost bg-frost p-4">
+            <p className="text-sm font-semibold text-ok">Starting points published</p>
+            <p className="mt-1 text-sm text-muted">{publishedAmount.toLocaleString("en-IN")} points were published to all teams. New teams will receive the same opening balance.</p>
           </div>
         ) : (
           <form onSubmit={publishStartingPoints} className="flex flex-col gap-3 sm:flex-row">
-            <input type="number" min="0" max="1000000000" step="1" required value={startingPoints} onChange={(event) => setStartingPoints(event.target.value)} placeholder="Enter starting points" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#090f1b] px-4 py-3 text-sm text-white outline-none focus:border-sky-300/50" />
-            <button type="submit" disabled={publishLoading || !startingPoints.trim() || teams.length === 0} className="flex items-center justify-center gap-2 rounded-xl border border-amber-200/30 bg-amber-200/10 px-5 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-200/20 disabled:opacity-50">
+            <input type="number" min="0" max="1000000000" step="1" required value={startingPoints} onChange={(event) => setStartingPoints(event.target.value)} placeholder="Enter starting points" className="min-w-0 flex-1 rounded-xl border border-silver bg-white px-4 py-3 text-sm text-graphite outline-none focus:border-frost" />
+            <button type="submit" disabled={publishLoading || !startingPoints.trim() || teams.length === 0} className="flex items-center justify-center gap-2 rounded-xl border border-frost bg-frost px-5 py-3 text-sm font-semibold text-brass transition hover:bg-frost disabled:opacity-50">
               {publishLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               {publishLoading ? "Publishing..." : `Publish to ${teams.length} teams`}
             </button>
           </form>
         )}
-        {publishMessage && <p className="mt-3 text-sm text-emerald-200">{publishMessage}</p>}
-        {!published && <p className="mt-3 text-xs text-amber-200/70">Not published yet. Teams will not receive any opening points until you confirm publication.</p>}
+        {publishMessage && <p className="mt-3 text-sm text-ok">{publishMessage}</p>}
+        {!published && <p className="mt-3 text-xs text-brass/70">Not published yet. Teams will not receive any opening points until you confirm publication.</p>}
       </section>
 
       <section className="panel p-6">
         <div className="mb-6 flex items-center gap-3">
-          <div className="rounded-xl border border-sky-300/20 bg-sky-300/10 p-3 text-sky-200">
+          <div className="rounded-xl border border-frost bg-frost p-3 text-cobalt-ink">
             <Plus size={20} />
           </div>
           <div>
-            <h2 className="font-semibold text-white">Create a new team</h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <h2 className="font-semibold text-graphite">Create a new team</h2>
+            <p className="mt-1 text-xs text-faint">
               A username and initial password will be generated automatically.
             </p>
           </div>
@@ -197,12 +197,12 @@ export default function TeamManager({
             placeholder="Enter team name (e.g. TEAM ALPHA)"
             maxLength={80}
             required
-            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#090f1b] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-sky-300/50"
+            className="min-w-0 flex-1 rounded-xl border border-silver bg-white px-4 py-3 text-sm text-graphite outline-none transition placeholder:text-faint focus:border-frost"
           />
           <button
             type="submit"
             disabled={loading || !teamName.trim()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-sky-200/30 bg-sky-400/15 px-5 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/25 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-frost bg-frost px-5 py-3 text-sm font-semibold text-cobalt-ink transition hover:bg-frost disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? (
               <Loader2 size={16} className="animate-spin" />
@@ -214,53 +214,53 @@ export default function TeamManager({
         </form>
 
         {error && (
-          <p className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300">
+          <p className="mt-4 rounded-xl border border-frost bg-frost p-3 text-sm text-err">
             {error}
           </p>
         )}
 
         {createdTeam && (
-          <div className="mt-6 rounded-2xl border border-sky-300/25 bg-sky-300/[.06] p-5">
-            <div className="mb-4 flex items-center gap-2 text-sky-200">
+          <div className="mt-6 rounded-2xl border border-frost bg-frost p-5">
+            <div className="mb-4 flex items-center gap-2 text-cobalt-ink">
               <Check size={18} />
               <h3 className="font-semibold">Team created successfully</h3>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs text-slate-500">Team name</p>
-                <p className="mt-1 font-medium text-white">
+                <p className="text-xs text-faint">Team name</p>
+                <p className="mt-1 font-medium text-graphite">
                   {createdTeam.name}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Username</p>
-                <p className="mt-1 font-mono text-sky-200">
+                <p className="text-xs text-faint">Username</p>
+                <p className="mt-1 font-mono text-cobalt-ink">
                   {createdTeam.username}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Initial password</p>
-                <p className="mt-1 font-mono text-amber-200">
+                <p className="text-xs text-faint">Initial password</p>
+                <p className="mt-1 font-mono text-brass">
                   {createdTeam.initial_password}
                 </p>
               </div>
               {createdTeam.starting_points !== null && <div>
-                <p className="text-xs text-slate-500">Starting points</p>
-                <p className="mt-1 font-semibold text-white">{createdTeam.starting_points.toLocaleString("en-IN")}</p>
+                <p className="text-xs text-faint">Starting points</p>
+                <p className="mt-1 font-semibold text-graphite">{createdTeam.starting_points.toLocaleString("en-IN")}</p>
               </div>}
             </div>
 
             <button
               type="button"
               onClick={copyCredentials}
-              className="mt-5 flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.06] px-4 py-2.5 text-sm text-white transition hover:bg-white/10"
+              className="mt-5 flex items-center gap-2 rounded-xl border border-silver bg-frost px-4 py-2.5 text-sm text-graphite transition hover:bg-frost"
             >
               {copied ? <Check size={16} /> : <Copy size={16} />}
               {copied ? "Credentials copied" : "Copy login credentials"}
             </button>
 
-            <p className="mt-3 text-xs leading-5 text-amber-200/80">
+            <p className="mt-3 text-xs leading-5 text-brass/80">
               Share these credentials securely. The team must change its
               password after its first login.
             </p>
@@ -269,20 +269,20 @@ export default function TeamManager({
       </section>
 
       <section className="panel overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-silver px-5 py-4">
           <div className="flex items-center gap-3">
-            <Users size={18} className="text-sky-200" />
+            <Users size={18} className="text-cobalt-ink" />
             <h2 className="font-semibold">Registered teams</h2>
           </div>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-muted">
             {teams.length} teams
           </span>
         </div>
 
         {teams.length === 0 ? (
           <div className="p-10 text-center">
-            <Users size={28} className="mx-auto text-slate-600" />
-            <p className="mt-3 text-sm text-slate-400">
+            <Users size={28} className="mx-auto text-faint" />
+            <p className="mt-3 text-sm text-muted">
               No teams have been created yet.
             </p>
           </div>
@@ -296,25 +296,25 @@ export default function TeamManager({
                 <div className="min-w-0 flex-1">
                   {editingId === team.id ? (
                     <div className="flex flex-wrap gap-2">
-                      <input value={editingName} onChange={(event) => setEditingName(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#090f1b] px-3 py-2 text-sm text-white" />
-                      <button disabled={loading} onClick={() => saveTeamName(team.id)} className="rounded-lg border border-sky-200/20 p-2 text-sky-200"><Save size={15}/></button>
-                      <button onClick={() => setEditingId(null)} className="rounded-lg border border-white/10 p-2 text-slate-300"><X size={15}/></button>
+                      <input value={editingName} onChange={(event) => setEditingName(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-silver bg-white px-3 py-2 text-sm text-graphite" />
+                      <button disabled={loading} onClick={() => saveTeamName(team.id)} className="rounded-lg border border-frost p-2 text-cobalt-ink"><Save size={15}/></button>
+                      <button onClick={() => setEditingId(null)} className="rounded-lg border border-silver p-2 text-muted"><X size={15}/></button>
                     </div>
                   ) : (
-                    <Link href={`/dashboard/teams/${team.id}`} className="inline-flex max-w-full items-center gap-2 truncate text-sm font-semibold text-white transition hover:text-sky-200"><span className="truncate">{team.team_name}</span><ExternalLink size={13} className="shrink-0 text-sky-300" /></Link>
+                    <Link href={`/dashboard/teams/${team.id}`} className="inline-flex max-w-full items-center gap-2 truncate text-sm font-semibold text-graphite transition hover:text-cobalt-ink"><span className="truncate">{team.team_name}</span><ExternalLink size={13} className="shrink-0 text-cobalt-ink" /></Link>
                   )}
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-faint">
                     Username:{" "}
-                    <span className="font-mono text-sky-200/80">
+                    <span className="font-mono text-cobalt-ink">
                       {team.username || "Not assigned"}
                     </span>
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
-                  <Link href={`/dashboard/teams/${team.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200/20 bg-sky-300/[.06] px-3 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-300/10" aria-label={`View all activity for ${team.team_name}`}>
+                <div className="flex shrink-0 items-center gap-2 text-xs text-faint">
+                  <Link href={`/dashboard/teams/${team.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-frost bg-frost px-3 py-2 text-xs font-medium text-cobalt-ink transition hover:bg-frost" aria-label={`View all activity for ${team.team_name}`}>
                     <Activity size={14} /> View activity
                   </Link>
-                  <button title="Edit team name" onClick={() => { setEditingId(team.id); setEditingName(team.team_name); }} className="rounded-lg border border-white/10 p-2 text-slate-300 hover:text-sky-200"><Pencil size={14}/></button>
+                  <button title="Edit team name" onClick={() => { setEditingId(team.id); setEditingName(team.team_name); }} className="rounded-lg border border-silver p-2 text-muted hover:text-cobalt-ink"><Pencil size={14}/></button>
                   <KeyRound size={14} />
                   Team account
                 </div>

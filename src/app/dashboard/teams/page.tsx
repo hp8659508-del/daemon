@@ -15,7 +15,7 @@ export default async function TeamsPage() {
 
   if (error) {
     return (
-      <div className="panel p-6 text-sm text-red-300">
+      <div className="panel p-6 text-sm text-err">
         Could not load teams: {error.message}
       </div>
     );
@@ -28,7 +28,7 @@ export default async function TeamsPage() {
     .single();
 
   if (settingsError) {
-    return <div className="panel p-6 text-sm text-red-300">Could not load event settings: {settingsError.message}</div>;
+    return <div className="panel p-6 text-sm text-err">Could not load event settings: {settingsError.message}</div>;
   }
 
   return (
