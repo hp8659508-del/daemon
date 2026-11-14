@@ -154,7 +154,8 @@ drop policy if exists "team bingo own or staff" on public.team_bingo;
 create policy "team bingo own or staff" on public.team_bingo for select to authenticated
   using (team_id = public.current_team_id() or public.is_staff());
 
-grant select on public.team_stages, public.powerups, public.team_powerups, public.bingo_cells, public.team_bingo to authenticated;
+grant all on public.team_stages, public.powerups, public.team_powerups, public.bingo_cells, public.team_bingo to postgres, service_role;
+grant select on public.team_stages, public.powerups, public.team_powerups, public.bingo_cells, public.team_bingo to authenticated, anon;
 revoke insert, update, delete, truncate on public.team_stages, public.powerups, public.team_powerups, public.bingo_cells, public.team_bingo from authenticated, anon;
 
 -- Participants can no longer buy on their own: the auctioneer does it.
@@ -280,9 +281,9 @@ end $$;
 revoke all on function public.admin_sell_lot(uuid, uuid, integer, uuid) from public, anon, authenticated;
 revoke all on function public.admin_undo_sale(uuid) from public, anon, authenticated;
 revoke all on function public.admin_toggle_bingo(uuid, integer, uuid) from public, anon, authenticated;
-grant execute on function public.admin_sell_lot(uuid, uuid, integer, uuid) to service_role;
-grant execute on function public.admin_undo_sale(uuid) to service_role;
-grant execute on function public.admin_toggle_bingo(uuid, integer, uuid) to service_role;
+grant execute on function public.admin_sell_lot(uuid, uuid, integer, uuid) to postgres, service_role;
+grant execute on function public.admin_undo_sale(uuid) to postgres, service_role;
+grant execute on function public.admin_toggle_bingo(uuid, integer, uuid) to postgres, service_role;
 
 -- ---------- realtime: team screens update the instant the admin acts ----------
 do $$
