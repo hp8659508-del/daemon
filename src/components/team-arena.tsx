@@ -368,7 +368,8 @@ export function HistoryFeed({ items, teamName }: { items: TeamView["activity"]; 
             <span className={`num hidden text-right text-xs sm:block ${(i.minutes ?? 0) < 0 ? "text-err" : "text-ok"}`}>{i.minutes ? fmtMins(i.minutes) : ""}</span>
             <span className={`num w-16 text-right font-semibold ${(i.points ?? 0) < 0 ? "text-err" : "text-ok"}`}>{i.points ? `${i.points > 0 ? "+" : ""}${i.points}` : ""}</span>
           </div>
-        ))}
+        ))
+      )}
     </div>
   );
 }
