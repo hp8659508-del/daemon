@@ -337,14 +337,26 @@ function Loadout({ v }: { v: TeamView }) {
 export function HistoryFeed({ items, teamName }: { items: TeamView["activity"]; teamName?: (id: string | null) => string }) {
   const [kind, setKind] = useState("all");
   const kinds = ["all", "points", "powerup", "auction", "bingo", "round"];
-  const list = items.filter(i => kind === "all" || i.kind === kind);
+  const list = items.filter(i => {
+    if (kind === "all") return true;
+    if (kind === "points") return i.kind === "points" || (i.points != null && i.points !== 0);
+    return i.kind === kind;
+  });
   return (
     <div className="panel overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b border-graphite p-4">
         <h3 className="font-display mr-auto text-lg">History</h3>
-        {kinds.map(k => <button key={k} className="key key-sm" data-on={kind === k} onClick={() => setKind(k)}>{k}</button>)}
+        {kinds.map(k => <button key={k} className="key key-sm uppercase" data-on={kind === k} onClick={() => setKind(k)}>{k}</button>)}
       </div>
-      {list.length === 0 ? <div className="p-5"><Empty title="Nothing here yet">Every grant, removal, sale, stamp and round change will be listed here with its time.</Empty></div> :
+      {list.length === 0 ? (
+        <div className="p-5">
+          <Empty title={kind === "all" ? "Nothing here yet" : `No ${kind} entries yet`}>
+            {kind === "all"
+              ? "Every grant, removal, sale, stamp and round change will be listed here with its time."
+              : `Switch to ALL to see all activity.`}
+          </Empty>
+        </div>
+      ) : (
         list.map(i => (
           <div key={i.id} className="table-row grid grid-cols-[76px_1fr_auto] items-center gap-3 px-4 py-2.5 text-sm sm:grid-cols-[90px_96px_1fr_auto_auto]">
             <span className="num text-xs text-muted">{new Date(i.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
