@@ -205,7 +205,7 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
       <div className="space-y-5">
         <div className="panel grid place-items-center p-6 text-center">
           <p className="eyebrow">Raise this when you bid</p>
-          <div className="mt-3 grid h-36 w-36 place-items-center rounded-full border border-silver bg-gradient-to-b from-white to-frost shadow-[inset_0_1px_0_#fff,0_14px_30px_-12px_rgba(24,33,47,.35)]">
+          <div className="mt-3 grid h-36 w-36 place-items-center border-2 border-graphite bg-white shadow-[6px_6px_0_#111]">
             <span className="font-display num text-6xl font-black">{String(paddle).padStart(2, "0")}</span>
           </div>
           <p className="mt-3 text-xs text-muted">The auctioneer records the sale. Your points update here right away.</p>
@@ -229,15 +229,15 @@ function SpinLive({ v }: { v: TeamView }) {
   const latest = fromSpin[0];
   return (
     <div className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
-      <div className="panel grid place-items-center overflow-hidden p-8 text-center">
-        <Wheel />
+      <div className="panel foil grid place-items-center overflow-hidden p-8 text-center">
+        <p className="eyebrow">Spin round</p>
         {latest ? (
-          <div className="mt-6">
+          <div className="mt-4">
             <p className="eyebrow">The wheel gave you</p>
-            <p className="font-display animate-stamp mt-2 inline-block rounded-xl border-2 border-cobalt-ink px-4 py-2 text-2xl font-black text-cobalt-ink">{latest.name}</p>
+            <p className="font-display animate-stamp mt-2 inline-block border-2 border-graphite bg-white px-4 py-2 text-3xl shadow-[4px_4px_0_#5878D8]">{latest.name}</p>
             {latest.minutes_delta !== 0 && <p className="num mt-2 text-sm text-muted">{fmtMins(latest.minutes_delta)} {latest.target_name ? `to ${latest.target_name}` : "to your deadline"}</p>}
           </div>
-        ) : <p className="mt-6 max-w-xs text-sm text-muted">{v.stages.spin.status === "live" ? "Head to the physical wheel. Your result will appear here once the organisers record it." : "No spin result was recorded for your team."}</p>}
+        ) : <p className="mt-4 max-w-xs text-sm text-muted">{v.stages.spin.status === "live" ? "Head to the physical wheel. Your result will appear here once the organisers record it." : "No spin result was recorded for your team."}</p>}
       </div>
       <div className="panel p-5">
         <h3 className="font-display font-bold">Spin results</h3>
@@ -246,25 +246,6 @@ function SpinLive({ v }: { v: TeamView }) {
     </div>
   );
 }
-function Wheel() {
-  const segs = 10; const cols = ["#5878D8", "#FFFFFF", "#A6D8D4", "#FFFFFF", "#E7D9BD", "#FFFFFF", "#9A8CCB", "#FFFFFF", "#C8664A", "#FFFFFF"];
-  return (
-    <div className="relative">
-      <div className="absolute left-1/2 top-[-6px] z-10 h-0 w-0 -translate-x-1/2 border-x-[10px] border-t-[18px] border-x-transparent border-t-graphite drop-shadow" />
-      <svg width="200" height="200" viewBox="-100 -100 200 200" className="drop-shadow-[0_18px_24px_rgba(24,33,47,.25)] [animation:spin_24s_linear_infinite]">
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        <circle r="98" fill="#C7D1DD" />
-        {Array.from({ length: segs }).map((_, i) => {
-          const a0 = (i / segs) * 2 * Math.PI, a1 = ((i + 1) / segs) * 2 * Math.PI, r = 90;
-          return <path key={i} d={`M0 0 L${r * Math.sin(a0)} ${-r * Math.cos(a0)} A${r} ${r} 0 0 1 ${r * Math.sin(a1)} ${-r * Math.cos(a1)}Z`} fill={cols[i]} stroke="#DCE2EA" strokeWidth=".8" />;
-        })}
-        <circle r="20" fill="url(#hub)" stroke="#AAB6C4" />
-        <defs><radialGradient id="hub" cx=".35" cy=".3"><stop offset="0" stopColor="#fff" /><stop offset="1" stopColor="#C7D1DD" /></radialGradient></defs>
-      </svg>
-    </div>
-  );
-}
-
 /* ---------------- Bingo: a paper card with ink stamps ---------------- */
 function BingoCard({ v }: { v: TeamView }) {
   const marked = new Set(v.marked);
@@ -279,7 +260,7 @@ function BingoCard({ v }: { v: TeamView }) {
     <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
       <div className="panel p-4 sm:p-6" style={{ background: "linear-gradient(180deg,#FFFDF8,#FBF7EE)" }}>
         <div className="mb-4 flex items-end justify-between">
-          <h3 className="font-display text-5xl font-black tracking-tight sm:text-6xl" style={{ textShadow: "2px 2px 0 #E7D9BD" }}>BINGO</h3>
+          <h3 className="font-display text-5xl font-black tracking-tight sm:text-6xl" >BINGO</h3>
           <span className="font-serif text-lg italic text-muted">MD Club · Daemon Hour</span>
         </div>
         <div className="grid grid-cols-5 overflow-hidden rounded-lg border-2 border-graphite">

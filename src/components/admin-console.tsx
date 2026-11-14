@@ -41,7 +41,7 @@ export default function AdminConsole({ w }: { w: World }) {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Control room · {w.teams.length} teams</p>
-          <h1 className="font-serif text-5xl">Daemon Hour, <span className="italic text-cobalt-ink">live</span></h1>
+          <h1 className="font-display text-5xl">Daemon Hour <span className="text-faint">/ Live</span></h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="chip"><StatusLed status={liveCount(a) ? "live" : "closed"} /> {a} · {liveCount(a)}</span>)}
@@ -355,7 +355,7 @@ function Bingo({ w, cmd, paddle, stageOf }: Ctx) {
       </div>
       <div className="panel p-5" style={{ background: "linear-gradient(180deg,#FFFDF8,#FBF7EE)" }}>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-3xl font-black" style={{ textShadow: "2px 2px 0 #E7D9BD" }}>BINGO</h2>
+          <h2 className="font-display text-3xl font-black">BINGO</h2>
           <div className="flex gap-2"><span className="chip num">line +{w.settings.bingo_line_bonus}</span><button className="key key-sm" data-on={edit} onClick={() => setEdit(!edit)}><Pencil size={12} />{edit ? "Done editing" : "Edit squares"}</button></div>
         </div>
         {!team && !edit ? <Empty title="Choose a team">Tap a square to stamp a dare. Tap it again to undo. Points and line bonuses update automatically.</Empty> :
