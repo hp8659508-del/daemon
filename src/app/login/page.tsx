@@ -5,7 +5,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ShieldCheck } from "lucide-react";
-import { Hourglass } from "@/components/ui";
+import { Hourglass, LogoGlass } from "@/components/ui";
 
 function getLoginEmail(identifier: string) {
   const value = identifier.trim();
@@ -66,8 +66,8 @@ function LoginForm() {
       <div className="panel relative grid w-full max-w-5xl overflow-hidden lg:grid-cols-[1.05fr_.95fr]">
         <section className="relative hidden flex-col justify-between overflow-hidden border-r border-silver/70 bg-gradient-to-b from-frost to-porcelain p-10 lg:flex">
           <div className="flex items-center gap-3">
-            <img src="/md-logo.svg" alt="" className="h-10 w-7" />
-            <div className="leading-none"><div className="font-display font-black tracking-[.16em]">DAEMON HOUR</div><div className="mt-1 text-[9px] font-semibold tracking-[.24em] text-muted">THE MOBILE APP DEVELOPMENT CLUB</div></div>
+            <LogoGlass size={48} />
+            <div className="leading-none"><div className="font-display font-black tracking-[.16em]">DAEMON HOUR</div><div className="mt-1 text-[9px] font-semibold tracking-[.24em] text-muted">MAD CLUB · NHCE</div></div>
           </div>
           <div className="relative">
             <div className="absolute -right-6 -top-10 opacity-90"><Hourglass fill={0.62} size={150} /></div>
@@ -80,7 +80,7 @@ function LoginForm() {
 
         <section className="flex items-center justify-center px-6 py-14 sm:px-12">
           <div className="w-full max-w-sm">
-            <div className="mb-8 flex items-center gap-3 lg:hidden"><img src="/md-logo.svg" alt="" className="h-9 w-6" /><span className="font-display font-black tracking-[.16em]">DAEMON HOUR</span></div>
+            <div className="mb-8 flex items-center gap-3 lg:hidden"><LogoGlass size={40} /><span className="font-display font-black tracking-[.16em]">DAEMON HOUR</span></div>
             <p className="eyebrow">Team leads only</p>
             <h2 className="font-display mt-2 text-3xl font-black">Enter the arena</h2>
             <p className="mt-2 text-sm text-muted">Sign in with your team username, e.g. <span className="num text-graphite">STRAW_HATS</span>.</p>

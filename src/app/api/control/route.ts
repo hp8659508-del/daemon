@@ -31,6 +31,11 @@ export async function POST(request: Request) {
   if (profile?.role !== "admin") return NextResponse.json({ error: "Admin only." }, { status: 403 });
 
   const db = createAdminClient();
+  type LogRow = { team_id: string | null; kind: string; action: string; label: string; points?: number | null; minutes?: number | null };
+  const log = async (rows: LogRow | LogRow[]) => {
+    const list = (Array.isArray(rows) ? rows : [rows]).map(r => ({ ...r, actor: user.id }));
+    if (list.length) await db.from("activity_log").insert(list); // best-effort audit trail
+  };
   let body: Record<string, any>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Bad request." }, { status: 400 }); }
 
@@ -42,7 +47,14 @@ export async function POST(request: Request) {
         const teamIds = ids(body.team_ids);
         const activity = String(body.activity);
         const status = String(body.status);
-        if (!ACTS.includes(activity) || !["upcoming", "live", "closed"].includes(status)) throw new Error("Unknown stage.");
+        if (!(ACTS.includes(activity) || activity === "all") || !["upcoming", "live", "closed"].includes(status)) throw new Error("Unknown stage.");
+        const acts = activity === "all" ? ACTS : [activity];
+        if (status === "upcoming") {
+          // Reset = forget the round entirely, so it shows as upcoming for every selected team.
+          fail((await db.from("team_stages").delete().in("team_id", teamIds).in("activity", acts)).error);
+          await log(teamIds.map(team_id => ({ team_id, kind: "round", action: "reset", label: `${acts.join(", ")} reset to upcoming` })));
+          return NextResponse.json({ ok: true, message: `${acts.join(" + ")} reset for ${teamIds.length} team(s)` });
+        }
         const now = new Date().toISOString();
         let snapshot: Record<string, { pts: number; end: string | null }> = {};
         if (status === "closed") {
@@ -56,15 +68,16 @@ export async function POST(request: Request) {
             end: projectedEnd(s?.hackathon_end_at ?? null, minutesFor(id, (tps ?? []) as TeamPowerup[])),
           }]));
         }
-        const rows = teamIds.map(team_id => ({
+        const rows = teamIds.flatMap(team_id => acts.map(activity => ({
           team_id, activity, status,
           opened_at: status === "live" ? now : status === "upcoming" ? null : undefined,
           closed_at: status === "closed" ? now : null,
           closing_points: status === "closed" ? snapshot[team_id].pts : null,
           closing_end_at: status === "closed" ? snapshot[team_id].end : null,
-        })).map(r => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)));
+        }))).map(r => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)));
         fail((await db.from("team_stages").upsert(rows, { onConflict: "team_id,activity" })).error);
-        return NextResponse.json({ ok: true, message: `${activity} → ${status} for ${teamIds.length} team(s)` });
+        await log(teamIds.map(team_id => ({ team_id, kind: "round", action: status === "live" ? "opened" : "closed", label: `${acts.join(", ")} ${status === "live" ? "opened" : "closed"}`, points: status === "closed" ? snapshot[team_id]?.pts ?? null : null })));
+        return NextResponse.json({ ok: true, message: `${acts.join(" + ")} → ${status} for ${teamIds.length} team(s)` });
       }
       case "bay": {
         const teamIds = ids(body.team_ids);
@@ -82,10 +95,13 @@ export async function POST(request: Request) {
         fail((await db.from("transactions").insert(teamIds.map(team_id => ({
           team_id, description: reason, points: amount, transaction_type: amount > 0 ? "bonus" : "adjustment", created_by: user.id,
         })))).error);
+        await log(teamIds.map(team_id => ({ team_id, kind: "points", action: amount > 0 ? "granted" : "removed", label: reason, points: amount })));
         return NextResponse.json({ ok: true, message: `${amount > 0 ? "+" : ""}${amount} pts → ${teamIds.length} team(s)` });
       }
       case "undo_tx": {
+        const { data: tx } = await db.from("transactions").select("team_id,description,points").eq("id", str(body.id)).maybeSingle();
         fail((await db.from("transactions").delete().eq("id", str(body.id)).neq("transaction_type", "purchase")).error);
+        if (tx) await log({ team_id: tx.team_id, kind: "points", action: "removed", label: `Entry deleted: ${tx.description}`, points: -Number(tx.points) });
         return NextResponse.json({ ok: true, message: "Entry removed" });
       }
 
@@ -95,6 +111,9 @@ export async function POST(request: Request) {
         if ("hackathon_end_at" in body) patch.hackathon_end_at = body.hackathon_end_at ? new Date(body.hackathon_end_at).toISOString() : null;
         if ("broadcast" in body) patch.broadcast = typeof body.broadcast === "string" && body.broadcast.trim() ? body.broadcast.trim().slice(0, 200) : null;
         if ("bingo_line_bonus" in body) patch.bingo_line_bonus = int(body.bingo_line_bonus, 0, 100000);
+        if ("bingo_full_bonus" in body) patch.bingo_full_bonus = int(body.bingo_full_bonus, 0, 100000);
+        if ("bingo_rewards" in body && body.bingo_rewards && typeof body.bingo_rewards === "object")
+          patch.bingo_rewards = Object.fromEntries(["B", "I", "N", "G", "O", "FULL"].map(k => [k, String(body.bingo_rewards[k] ?? "").slice(0, 120)]));
         if ("leaderboard_visible" in body) patch.leaderboard_visible = Boolean(body.leaderboard_visible);
         if ("live_lot" in body) patch.live_lot = body.live_lot ? { item_id: str(body.live_lot.item_id), price: int(body.live_lot.price, 0), team_ids: Array.isArray(body.live_lot.team_ids) ? body.live_lot.team_ids : undefined } : null;
         fail((await db.from("event_settings").update(patch).eq("id", true)).error);
@@ -127,10 +146,14 @@ export async function POST(request: Request) {
       case "sell": {
         const { data, error } = await db.rpc("admin_sell_lot", { p_item_id: str(body.item_id), p_team_id: str(body.team_id), p_price: int(body.price, 0), p_admin: user.id });
         fail(error);
+        const { data: it } = await db.from("auction_items").select("item_name").eq("id", body.item_id).maybeSingle();
+        await log({ team_id: body.team_id, kind: "auction", action: "sold", label: `Won lot: ${it?.item_name ?? "item"}`, points: -int(body.price, 0) });
         return NextResponse.json({ ok: true, message: `SOLD · ${data?.remaining ?? "?"} pts left`, data });
       }
       case "undo_sale": {
+        const { data: pr } = await db.from("purchases").select("team_id,purchase_price,auction_items(item_name)").eq("id", str(body.id)).maybeSingle();
         fail((await db.rpc("admin_undo_sale", { p_purchase_id: str(body.id) })).error);
+        if (pr) await log({ team_id: pr.team_id, kind: "auction", action: "refunded", label: `Sale reversed: ${(pr as any).auction_items?.item_name ?? "item"}`, points: Number(pr.purchase_price) });
         return NextResponse.json({ ok: true, message: "Sale reversed, points refunded" });
       }
 
@@ -157,14 +180,21 @@ export async function POST(request: Request) {
         const minutes = body.minutes_delta === "" || body.minutes_delta == null ? pu.minutes_delta : int(body.minutes_delta, -600, 600);
         const source = ["spin", "auction", "bingo", "manual"].includes(body.source) ? body.source : "manual";
         fail((await db.from("team_powerups").insert({ team_id: teamId, powerup_id: pu.id, name: pu.name, minutes_delta: minutes, target_team_id: target, source, note: body.note || null, created_by: user.id })).error);
+        await log({ team_id: teamId, kind: "powerup", action: "granted", label: `${pu.name} (${source})`, minutes: target ? null : minutes });
+        if (target) await log({ team_id: target, kind: "powerup", action: "granted", label: `${pu.name} played on you`, minutes });
         return NextResponse.json({ ok: true, message: `${pu.name} granted` });
       }
       case "powerup_used": {
+        const { data: tp } = await db.from("team_powerups").select("team_id,name").eq("id", str(body.id)).maybeSingle();
         fail((await db.from("team_powerups").update({ used: Boolean(body.used) }).eq("id", str(body.id))).error);
+        if (tp) await log({ team_id: tp.team_id, kind: "powerup", action: body.used ? "used" : "restored", label: tp.name });
         return NextResponse.json({ ok: true, message: body.used ? "Marked as used" : "Restored" });
       }
       case "revoke": {
+        const { data: tp } = await db.from("team_powerups").select("team_id,name,minutes_delta,target_team_id").eq("id", str(body.id)).maybeSingle();
         fail((await db.from("team_powerups").delete().eq("id", str(body.id))).error);
+        if (tp) await log({ team_id: tp.team_id, kind: "powerup", action: "removed", label: `${tp.name} revoked`, minutes: tp.target_team_id ? null : -tp.minutes_delta });
+        if (tp?.target_team_id) await log({ team_id: tp.target_team_id, kind: "powerup", action: "removed", label: `${tp.name} lifted`, minutes: -tp.minutes_delta });
         return NextResponse.json({ ok: true, message: "Power-up revoked" });
       }
 
@@ -178,6 +208,54 @@ export async function POST(request: Request) {
         fail((await db.from("bingo_cells").update({ label: str(body.label, 120), points: int(body.points, -10000, 10000) }).eq("idx", int(body.idx, 0, 24))).error);
         return NextResponse.json({ ok: true, message: "Square updated" });
       }
+      /* ---------------- hackathon clock ---------------- */
+      case "clock": {
+        const { data: st } = await db.from("event_settings").select("hackathon_end_at,clock_paused_at").eq("id", true).maybeSingle();
+        const now = Date.now();
+        let patch: Record<string, unknown> = {}; let msg = "";
+        switch (body.op) {
+          case "start": {
+            const minutes = int(body.minutes, 1, 72 * 60);
+            patch = { hackathon_started_at: new Date(now).toISOString(), hackathon_end_at: new Date(now + minutes * 60000).toISOString(), clock_paused_at: null };
+            msg = `Clock started · ${Math.floor(minutes / 60)}h ${minutes % 60}m`; break;
+          }
+          case "pause":
+            if (!st?.hackathon_end_at || st.clock_paused_at) throw new Error("Clock is not running.");
+            patch = { clock_paused_at: new Date(now).toISOString() }; msg = "Clock paused"; break;
+          case "resume": {
+            if (!st?.clock_paused_at || !st.hackathon_end_at) throw new Error("Clock is not paused.");
+            const gap = now - new Date(st.clock_paused_at).getTime();
+            patch = { clock_paused_at: null, hackathon_end_at: new Date(new Date(st.hackathon_end_at).getTime() + gap).toISOString() };
+            msg = "Clock resumed"; break;
+          }
+          case "adjust": {
+            if (!st?.hackathon_end_at) throw new Error("Start the clock first.");
+            const minutes = int(body.minutes, -24 * 60, 24 * 60);
+            patch = { hackathon_end_at: new Date(new Date(st.hackathon_end_at).getTime() + minutes * 60000).toISOString() };
+            msg = `Everyone ${minutes > 0 ? "+" : ""}${minutes} min`; break;
+          }
+          case "set_end": {
+            patch = { hackathon_end_at: body.end_at ? new Date(body.end_at).toISOString() : null, clock_paused_at: null };
+            if (body.end_at && !st?.hackathon_end_at) patch.hackathon_started_at = new Date(now).toISOString();
+            msg = "Deadline set"; break;
+          }
+          case "reset":
+            patch = { hackathon_end_at: null, hackathon_started_at: null, clock_paused_at: null }; msg = "Clock cleared"; break;
+          default: throw new Error("Unknown clock action.");
+        }
+        fail((await db.from("event_settings").update(patch).eq("id", true)).error);
+        await log({ team_id: null, kind: "clock", action: String(body.op), label: msg, minutes: body.op === "adjust" ? int(body.minutes, -1440, 1440) : null });
+        return NextResponse.json({ ok: true, message: msg });
+      }
+
+      /* ---------------- history ---------------- */
+      case "activity_for": {
+        const q = db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").order("created_at", { ascending: false }).limit(1000);
+        const { data, error } = body.team_id ? await q.eq("team_id", str(body.team_id)) : await q;
+        fail(error);
+        return NextResponse.json({ ok: true, data });
+      }
+
       default:
         return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }

@@ -16,14 +16,22 @@ export type Powerup = { id: string; name: string; description: string | null; mi
 export type TeamPowerup = { id: string; team_id: string; powerup_id: string | null; name: string; minutes_delta: number; target_team_id: string | null; source: string; note: string | null; used: boolean; created_at: string };
 export type Purchase = { id: string; team_id: string; item_id: string; purchase_price: number; created_at: string };
 export type Tx = { id: string; team_id: string; description: string; points: number; created_at: string };
+export type Activity_ = { id: string; team_id: string | null; kind: string; action: string; label: string; points: number | null; minutes: number | null; created_at: string };
 export type Cell = { idx: number; label: string; points: number; is_free: boolean };
-export type Settings = { hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
+export type Settings = { hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
 
 export const LINES = [
   [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
   [0, 5, 10, 15, 20], [1, 6, 11, 16, 21], [2, 7, 12, 17, 22], [3, 8, 13, 18, 23], [4, 9, 14, 19, 24],
   [0, 6, 12, 18, 24], [4, 8, 12, 16, 20],
 ];
+
+export const COLUMNS = [0, 1, 2, 3, 4].map(c => [c, c + 5, c + 10, c + 15, c + 20]);
+export const LETTERS = ["B", "I", "N", "G", "O"];
+export function completedColumns(marked: Set<number>, cells: Cell[]) {
+  const free = new Set(cells.filter(c => c.is_free).map(c => c.idx));
+  return COLUMNS.map(col => col.every(i => marked.has(i) || free.has(i)));
+}
 
 export function completedLines(marked: Set<number>, cells: Cell[]) {
   const free = new Set(cells.filter(c => c.is_free).map(c => c.idx));
@@ -58,7 +66,7 @@ async function allTransactions(db: ReturnType<typeof createAdminClient>) {
 /** One round-trip snapshot of the whole event. Server-only (service role); callers must authorise first. */
 export async function loadWorld() {
   const db = createAdminClient();
-  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings] = await Promise.all([
+  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity] = await Promise.all([
     db.from("teams").select("id,team_name,username,bay").order("team_name"),
     db.from("team_stages").select("*"),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active").order("item_name"),
@@ -68,10 +76,11 @@ export async function loadWorld() {
     allTransactions(db),
     db.from("bingo_cells").select("*").order("idx"),
     db.from("team_bingo").select("team_id,idx,marked_at"),
-    db.from("event_settings").select("hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
+    db.from("event_settings").select("hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
+    db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").order("created_at", { ascending: false }).limit(1000),
   ]);
-  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings].find(r => r.error)?.error;
-  if (firstError) throw new Error(firstError.message + " — has supabase/ui_rebuild_migration.sql been run?");
+  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity].find(r => r.error)?.error;
+  if (firstError) throw new Error(firstError.message + " — have supabase/ui_rebuild_migration.sql and ui_v2_migration.sql been run?");
 
   const balances: Record<string, number> = {};
   for (const t of (txs.data ?? []) as Tx[]) balances[t.team_id] = (balances[t.team_id] ?? 0) + Number(t.points ?? 0);
@@ -86,7 +95,8 @@ export async function loadWorld() {
     txs: (txs.data ?? []) as Tx[],
     cells: (cells.data ?? []) as Cell[],
     marks: (marks.data ?? []) as { team_id: string; idx: number; marked_at: string }[],
-    settings: (settings.data ?? { hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
+    activity: (activity.data ?? []) as Activity_[],
+    settings: (settings.data ?? { hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
     balances,
   };
 }
@@ -111,6 +121,11 @@ export function teamSlice(w: World, teamId: string) {
     powerups: myPowerups,
     minutes: minutesFor(teamId, w.teamPowerups),
     baseEnd: w.settings.hackathon_end_at,
+    startedAt: w.settings.hackathon_started_at,
+    pausedAt: w.settings.clock_paused_at,
+    activity: w.activity.filter(a => a.team_id === teamId).slice(0, 200),
+    rewards: w.settings.bingo_rewards ?? {},
+    fullBonus: w.settings.bingo_full_bonus,
     endAt: projectedEnd(w.settings.hackathon_end_at, minutesFor(teamId, w.teamPowerups)),
     cells: w.cells,
     marked: w.marks.filter(m => m.team_id === teamId).map(m => m.idx),

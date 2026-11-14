@@ -33,7 +33,7 @@ Then open http://localhost:3000 and sign in with the existing administrator acco
 
 ## `ui` branch: Daemon Hour 2.0
 
-**Before first run:** paste `supabase/ui_rebuild_migration.sql` into the Supabase SQL editor and run it once. It only adds columns and tables and is safe to re-run. It also turns off team-side buying and spinning, since organisers now record everything.
+**Before first run:** run `supabase/ui_rebuild_migration.sql`, then `supabase/ui_v2_migration.sql` (clock controls, activity history, finalised bingo sheet, column bonuses). Paste `supabase/ui_rebuild_migration.sql` into the Supabase SQL editor and run it once. It only adds columns and tables and is safe to re-run. It also turns off team-side buying and spinning, since organisers now record everything.
 
 ### Team leads (`/dashboard`)
 - An instrument panel at the top: a hackathon countdown to **their own** deadline (base deadline ± power-ups), their points, their paddle number, and their rank if you choose to show it.

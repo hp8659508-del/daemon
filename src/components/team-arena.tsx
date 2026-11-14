@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
+import { History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
+import BingoBoard from "@/components/bingo-board";
+import { COLUMNS } from "@/lib/bingo-shared";
 import { Hourglass, LiveSync, useNow, fmtClock, fmtTime, fmtMins, StatusLed, Empty } from "@/components/ui";
 
-type Tab = Activity | "loadout";
+type Tab = Activity | "loadout" | "history";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "auction", label: "Auction", icon: Gavel },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
   { key: "loadout", label: "Loadout", icon: Backpack },
+  { key: "history", label: "History", icon: History },
 ];
 
 export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }) {
@@ -27,7 +30,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
 
       <div className="rail" role="tablist">
         {TABS.map(t => {
-          const st = t.key === "loadout" ? null : v.stages[t.key].status;
+          const st = t.key === "loadout" || t.key === "history" ? null : v.stages[t.key].status;
           const Icon = t.icon;
           return (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>
@@ -44,11 +47,12 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
         {tab === "spin" && <Stage v={v} a="spin"><SpinLive v={v} /></Stage>}
         {tab === "bingo" && <Stage v={v} a="bingo"><BingoCard v={v} /></Stage>}
         {tab === "loadout" && <Loadout v={v} />}
+        {tab === "history" && <HistoryFeed items={v.activity} />}
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted">
         <span>Points and power-ups are set by the organisers. Your screen updates by itself.</span>
-        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings"]} />
+        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log"]} />
       </div>
     </div>
   );
@@ -72,9 +76,11 @@ function Instrument({ v, paddle }: { v: TeamView; paddle: number }) {
   const now = useNow();
   const end = v.endAt ? new Date(v.endAt).getTime() : null;
   const base = v.baseEnd ? new Date(v.baseEnd).getTime() : null;
-  const left = end && now ? end - now : null;
+  const ref = v.pausedAt ? new Date(v.pausedAt).getTime() : now;
+  const left = end && ref ? end - ref : null;
   // Fill relative to a 24h hackathon window, capped.
-  const fill = left == null ? 0.65 : Math.max(0, Math.min(1, left / (24 * 3600_000)));
+  const total = v.startedAt && base ? base - new Date(v.startedAt).getTime() : 3 * 3600_000;
+  const fill = left == null ? 0.65 : Math.max(0, Math.min(1, left / Math.max(total, 1)));
   return (
     <section className="panel foil overflow-hidden p-5 sm:p-7">
       <div className="pointer-events-none absolute inset-0 paper-grid opacity-50 [mask-image:linear-gradient(90deg,transparent,black_60%)]" />
@@ -90,7 +96,7 @@ function Instrument({ v, paddle }: { v: TeamView; paddle: number }) {
 
         <div className="lcd px-5 py-4">
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.2em] opacity-70">
-            <span className="flex items-center gap-1.5"><Clock3 size={12} /> Your hackathon ends</span>
+            <span className="flex items-center gap-1.5"><Clock3 size={12} /> {v.pausedAt ? "Clock paused" : "Your hackathon ends"}</span>
             {v.minutes !== 0 && <span className={v.minutes > 0 ? "text-ok" : "text-err"}>{fmtMins(v.minutes)}</span>}
           </div>
           <div className="mt-1 text-4xl font-bold tracking-tight sm:text-5xl">{left == null ? "--:--:--" : fmtClock(left)}</div>
@@ -246,44 +252,21 @@ function SpinLive({ v }: { v: TeamView }) {
     </div>
   );
 }
-/* ---------------- Bingo: a paper card with ink stamps ---------------- */
+/* ---------------- Bingo ---------------- */
 function BingoCard({ v }: { v: TeamView }) {
   const marked = new Set(v.marked);
   const free = new Set(v.cells.filter(c => c.is_free).map(c => c.idx));
-  const lines = useMemo(() => {
-    const L = [[0,1,2,3,4],[5,6,7,8,9],[10,11,12,13,14],[15,16,17,18,19],[20,21,22,23,24],[0,5,10,15,20],[1,6,11,16,21],[2,7,12,17,22],[3,8,13,18,23],[4,9,14,19,24],[0,6,12,18,24],[4,8,12,16,20]];
-    return L.filter(l => l.every(i => marked.has(i) || free.has(i)));
-  }, [v.marked, v.cells]); // eslint-disable-line react-hooks/exhaustive-deps
-  const inLine = new Set(lines.flat());
-  const pts = v.cells.filter(c => marked.has(c.idx)).reduce((a, c) => a + c.points, 0) + lines.length * v.lineBonus;
+  const cols = COLUMNS.filter(col => col.every(i => marked.has(i) || free.has(i))).length;
+  const full = cols === 5;
+  const pts = v.cells.filter(c => marked.has(c.idx)).reduce((a, c) => a + c.points, 0) + cols * v.lineBonus + (full ? v.fullBonus : 0);
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-      <div className="panel p-4 sm:p-6" style={{ background: "linear-gradient(180deg,#FFFDF8,#FBF7EE)" }}>
-        <div className="mb-4 flex items-end justify-between">
-          <h3 className="font-display text-5xl font-black tracking-tight sm:text-6xl" >BINGO</h3>
-          <span className="font-serif text-lg italic text-muted">MD Club · Daemon Hour</span>
-        </div>
-        <div className="grid grid-cols-5 overflow-hidden rounded-lg border-2 border-graphite">
-          {v.cells.map(c => {
-            const on = marked.has(c.idx) || c.is_free;
-            return (
-              <div key={c.idx} className={`relative grid aspect-square place-items-center border border-graphite/70 p-1 text-center text-[9.5px] leading-tight sm:p-2 sm:text-xs ${inLine.has(c.idx) ? "bg-sea/25" : ""}`}>
-                {c.is_free ? <img src="/md-logo.svg" alt="MD Club" className="h-3/5 w-3/5 object-contain" /> : <span className={on ? "text-muted" : ""}>{c.label}</span>}
-                {on && !c.is_free && (
-                  <span className="animate-stamp pointer-events-none absolute inset-[12%] grid place-items-center rounded-full border-[3px] border-cobalt-ink/80 text-[10px] font-black uppercase tracking-widest text-cobalt-ink/90 mix-blend-multiply sm:text-xs" style={{ background: "radial-gradient(circle, rgba(88,120,216,.12), rgba(88,120,216,.04))" }}>
-                    done{c.points ? <span className="num absolute bottom-[14%] text-[9px]">+{c.points}</span> : null}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <div className="panel p-4 sm:p-6"><BingoBoard cells={v.cells} marked={marked} rewards={v.rewards} /></div>
       <div className="space-y-4">
         <Readout icon={CheckCircle2} label="Dares cleared" value={`${v.marked.length} / ${v.cells.filter(c => !c.is_free).length}`} />
-        <Readout icon={Grid3x3} label="Lines" value={`${lines.length}`} />
+        <Readout icon={Grid3x3} label="Letters struck" value={`${cols} / 5`} />
         <Readout icon={Coins} label="Bingo points" value={`+${pts}`} />
-        <p className="text-xs leading-5 text-muted">Show a club member each dare. They&apos;ll stamp it, and it appears here a moment later. Each full row, column or diagonal earns <b className="num text-graphite">+{v.lineBonus}</b>.</p>
+        <p className="text-xs leading-5 text-muted">Show a club member each dare and they&apos;ll stamp it here. Finish a column to strike its letter: <b className="num text-graphite">+{v.lineBonus}</b> each. Strike all five for the full card: <b className="num text-graphite">+{v.fullBonus}</b>.</p>
       </div>
     </div>
   );
@@ -346,6 +329,34 @@ function Loadout({ v }: { v: TeamView }) {
           ))}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- History: everything granted or removed ---------------- */
+export function HistoryFeed({ items, teamName }: { items: TeamView["activity"]; teamName?: (id: string | null) => string }) {
+  const [kind, setKind] = useState("all");
+  const kinds = ["all", "points", "powerup", "auction", "bingo", "round"];
+  const list = items.filter(i => kind === "all" || i.kind === kind);
+  return (
+    <div className="panel overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 border-b border-graphite p-4">
+        <h3 className="font-display mr-auto text-lg">History</h3>
+        {kinds.map(k => <button key={k} className="key key-sm" data-on={kind === k} onClick={() => setKind(k)}>{k}</button>)}
+      </div>
+      {list.length === 0 ? <div className="p-5"><Empty title="Nothing here yet">Every grant, removal, sale, stamp and round change will be listed here with its time.</Empty></div> :
+        list.map(i => (
+          <div key={i.id} className="table-row grid grid-cols-[76px_1fr_auto] items-center gap-3 px-4 py-2.5 text-sm sm:grid-cols-[90px_96px_1fr_auto_auto]">
+            <span className="num text-xs text-muted">{new Date(i.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+            <span className="chip hidden justify-center sm:inline-flex">{i.kind}</span>
+            <span className="min-w-0 truncate">
+              <b className={["removed", "unstamped", "refunded"].includes(i.action) ? "text-err" : ["granted", "stamped", "opened"].includes(i.action) ? "text-ok" : ""}>{i.action}</b>
+              {" · "}{i.label}{teamName && i.team_id ? <span className="text-muted"> · {teamName(i.team_id)}</span> : null}
+            </span>
+            <span className={`num hidden text-right text-xs sm:block ${(i.minutes ?? 0) < 0 ? "text-err" : "text-ok"}`}>{i.minutes ? fmtMins(i.minutes) : ""}</span>
+            <span className={`num w-16 text-right font-semibold ${(i.points ?? 0) < 0 ? "text-err" : "text-ok"}`}>{i.points ? `${i.points > 0 ? "+" : ""}${i.points}` : ""}</span>
+          </div>
+        ))}
     </div>
   );
 }

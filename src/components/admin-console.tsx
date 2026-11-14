@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords } from "lucide-react";
+import { History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords } from "lucide-react";
 import type { World, Activity, StageStatus, Team } from "@/lib/game";
 import { useCommand, LiveSync, StatusLed, fmtTime, fmtMins, Empty, useNow, fmtClock } from "@/components/ui";
+import BingoBoard from "@/components/bingo-board";
+import { HistoryFeed } from "@/components/team-arena";
+import { LETTERS } from "@/lib/bingo-shared";
 
-type Tab = "stages" | "auction" | "spin" | "bingo" | "points" | "powerups" | "event";
+type Tab = "stages" | "auction" | "spin" | "bingo" | "points" | "powerups" | "history" | "event";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "stages", label: "Rounds", icon: Layers },
   { key: "auction", label: "Auction", icon: Gavel },
@@ -13,7 +16,8 @@ const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
   { key: "points", label: "Points", icon: Coins },
   { key: "powerups", label: "Power-ups", icon: Sparkles },
-  { key: "event", label: "Event", icon: Settings2 },
+  { key: "history", label: "History", icon: History },
+  { key: "event", label: "Clock & event", icon: Settings2 },
 ];
 
 type Cmd = ReturnType<typeof useCommand>;
@@ -27,7 +31,7 @@ export default function AdminConsole({ w }: { w: World }) {
   const ctx: Ctx = { w, cmd, paddle, stageOf };
   const liveCount = (a: Activity) => w.stages.filter(s => s.activity === a && s.status === "live").length;
 
-  // Keyboard: 1–7 switch tabs (ignored while typing)
+  // Keyboard: 1–8 switch tabs (ignored while typing)
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input,textarea,select")) return;
@@ -45,7 +49,7 @@ export default function AdminConsole({ w }: { w: World }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="chip"><StatusLed status={liveCount(a) ? "live" : "closed"} /> {a} · {liveCount(a)}</span>)}
-          <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo"]} every={20000} />
+          <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "activity_log", "event_settings"]} every={20000} />
         </div>
       </header>
 
@@ -62,6 +66,7 @@ export default function AdminConsole({ w }: { w: World }) {
         {tab === "bingo" && <Bingo {...ctx} />}
         {tab === "points" && <Points {...ctx} />}
         {tab === "powerups" && <Powerups {...ctx} />}
+        {tab === "history" && <HistoryTab {...ctx} />}
         {tab === "event" && <EventPanel {...ctx} />}
       </div>
       {cmd.toasts}
@@ -99,8 +104,8 @@ function MultiTeams({ w, paddle, selected, setSelected, stageFilter }: { w: Worl
   return (
     <div>
       <div className="mb-3 flex flex-wrap gap-2">
-        <button className="key key-sm" onClick={() => setSelected(new Set(w.teams.map(t => t.id)))}>All {w.teams.length}</button>
-        <button className="key key-sm" onClick={() => setSelected(new Set())}>None</button>
+        <button className="key key-sm" onClick={() => setSelected(new Set(w.teams.map(t => t.id)))}><CheckSquare size={12} /> Select all ({w.teams.length})</button>
+        <button className="key key-sm" disabled={!selected.size} onClick={() => setSelected(new Set())}><XCircle size={12} /> Clear selection</button>
         {bays.map(b => <button key={b} className="key key-sm" onClick={() => setSelected(new Set(w.teams.filter(t => t.bay === b).map(t => t.id)))}>{b}</button>)}
         <span className="ml-auto self-center text-xs text-muted"><b className="num text-graphite">{selected.size}</b> selected · shift-click selects a range</span>
       </div>
@@ -128,10 +133,13 @@ function MultiTeams({ w, paddle, selected, setSelected, stageFilter }: { w: Worl
 /* ============================ ROUNDS ============================ */
 function Stages({ w, cmd, paddle, stageOf }: Ctx) {
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [act, setAct] = useState<Activity>("auction");
+  const [act, setAct] = useState<Activity | "all">("auction");
+  const [amount, setAmount] = useState("100");
+  const [reason, setReason] = useState("");
   const [bay, setBay] = useState("");
   const set = (status: StageStatus) => {
-    if (status === "closed" && !confirm(`Close ${act} for ${sel.size} team(s)? Their tab freezes into a read-only record.`)) return;
+    if (status === "closed" && !confirm(`Close ${act === "all" ? "ALL rounds" : act} for ${sel.size} team(s)? Their tab freezes into a read-only record.`)) return;
+    if (status === "upcoming" && !confirm(`Reset ${act === "all" ? "ALL rounds" : act} to upcoming for ${sel.size} team(s)? Closed records for that round are cleared (points stay).`)) return;
     cmd.run({ action: "stage", team_ids: [...sel], activity: act, status });
   };
   return (
@@ -146,13 +154,22 @@ function Stages({ w, cmd, paddle, stageOf }: Ctx) {
       <div className="space-y-5">
         <div className="panel foil p-5">
           <p className="eyebrow">Apply to {sel.size} selected</p>
-          <div className="rail mt-3">{(["auction", "spin", "bingo"] as Activity[]).map(a => <button key={a} aria-selected={act === a} onClick={() => setAct(a)} className="capitalize">{a}</button>)}</div>
+          <div className="rail mt-3">{(["auction", "spin", "bingo", "all"] as const).map(a => <button key={a} aria-selected={act === a} onClick={() => setAct(a)}>{a === "all" ? "All rounds" : a}</button>)}</div>
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <button className="key" disabled={!sel.size || cmd.busy} onClick={() => set("upcoming")}>Reset</button>
+            <button className="key" disabled={!sel.size || cmd.busy} onClick={() => set("upcoming")}><RotateCcw size={13} /> Reset</button>
             <button className="key-primary" disabled={!sel.size || cmd.busy} onClick={() => set("live")}>Open</button>
             <button className="key" disabled={!sel.size || cmd.busy} onClick={() => set("closed")}>Close</button>
           </div>
-          <p className="mt-3 text-xs leading-5 text-muted">Closing a round saves each team&apos;s points and deadline at that moment. Their tab then shows only that record.</p>
+          <p className="mt-3 text-xs leading-5 text-muted">Open makes the round live. Close freezes it into a record with points and deadline. Reset puts it back to upcoming. Pick <b>All rounds</b> to do all three at once.</p>
+        </div>
+        <div className="panel p-5">
+          <p className="eyebrow">Give points to {sel.size} selected</p>
+          <div className="mt-3 grid grid-cols-4 gap-2">{[-50, 50, 100, 250].map(n => <button key={n} className="key key-sm num" data-on={String(n) === amount} onClick={() => setAmount(String(n))}>{n > 0 ? "+" : ""}{n}</button>)}</div>
+          <div className="mt-2 grid grid-cols-[96px_1fr] gap-2"><input className="field num" type="number" value={amount} onChange={e => setAmount(e.target.value)} /><input className="field" placeholder="Reason (teams see this)" value={reason} onChange={e => setReason(e.target.value)} /></div>
+          <button className="key-primary mt-3 w-full" disabled={!sel.size || !Number(amount) || cmd.busy} onClick={() => {
+            const n = Number(amount); if (!confirm(`${n > 0 ? "Give" : "Deduct"} ${Math.abs(n)} pts ${n > 0 ? "to" : "from"} ${sel.size} team(s)?`)) return;
+            cmd.run({ action: "grant", team_ids: [...sel], amount: n, reason: reason || (n > 0 ? "Organiser bonus" : "Organiser deduction") });
+          }}><Coins size={15} /> Apply to {sel.size} team(s)</button>
         </div>
         <div className="panel p-5">
           <p className="eyebrow">Venue bays</p>
@@ -346,35 +363,46 @@ function Bingo({ w, cmd, paddle, stageOf }: Ctx) {
   const [edit, setEdit] = useState(false);
   const marked = new Set(w.marks.filter(m => m.team_id === team).map(m => m.idx));
   const progress = w.teams.map(t => ({ t, n: w.marks.filter(m => m.team_id === t.id).length })).sort((a, b) => b.n - a.n);
+  const [rw, setRw] = useState<Record<string, string>>({ ...Object.fromEntries([...LETTERS, "FULL"].map(k => [k, ""])), ...(w.settings.bingo_rewards ?? {}) });
+  const [colBonus, setColBonus] = useState(String(w.settings.bingo_line_bonus));
+  const [fullBonus, setFullBonus] = useState(String(w.settings.bingo_full_bonus));
+  const tName = w.teams.find(t => t.id === team)?.team_name;
   return (
-    <div className="grid gap-5 xl:grid-cols-[340px_1fr_280px]">
-      <div className="panel p-4">
-        <h2 className="font-display mb-3 font-bold">Team</h2>
-        <TeamPicker w={w} paddle={paddle} value={team} onChange={setTeam} filter={edit ? undefined : t => stageOf(t.id, "bingo") !== "upcoming"} />
-        <p className="mt-3 text-[11px] text-faint">Only teams whose bingo round is live or closed are listed.</p>
-      </div>
-      <div className="panel p-5" style={{ background: "linear-gradient(180deg,#FFFDF8,#FBF7EE)" }}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-3xl font-black">BINGO</h2>
-          <div className="flex gap-2"><span className="chip num">line +{w.settings.bingo_line_bonus}</span><button className="key key-sm" data-on={edit} onClick={() => setEdit(!edit)}><Pencil size={12} />{edit ? "Done editing" : "Edit squares"}</button></div>
+    <div className="grid gap-5 xl:grid-cols-[320px_1fr_280px]">
+      <div className="space-y-5">
+        <div className="panel p-4">
+          <h2 className="font-display mb-3">Team</h2>
+          <TeamPicker w={w} paddle={paddle} value={team} onChange={t => { setTeam(t); setEdit(false); }} filter={t => stageOf(t.id, "bingo") !== "upcoming"} />
+          <p className="mt-3 text-[11px] text-faint">Only teams whose bingo round is live or closed are listed. Open it under Rounds first.</p>
         </div>
-        {!team && !edit ? <Empty title="Choose a team">Tap a square to stamp a dare. Tap it again to undo. Points and line bonuses update automatically.</Empty> :
-          <div className="grid grid-cols-5 overflow-hidden rounded-lg border-2 border-graphite">
-            {w.cells.map(c => edit ? <CellEditor key={c.idx} c={c} cmd={cmd} /> : (
-              <button key={c.idx} disabled={c.is_free || cmd.busy} onClick={() => cmd.run({ action: "bingo_toggle", team_id: team, idx: c.idx })}
-                className={`relative grid aspect-square place-items-center border border-graphite/60 p-1.5 text-center text-[10.5px] leading-tight transition hover:bg-cobalt-wash ${marked.has(c.idx) ? "bg-sea/30" : ""}`}>
-                {c.is_free ? <b>FREE</b> : c.label}
-                {marked.has(c.idx) && <span className="animate-stamp absolute inset-[14%] rounded-full border-[3px] border-cobalt-ink/80 mix-blend-multiply" />}
-                {!c.is_free && <span className="num absolute bottom-1 right-1.5 text-[9px] text-faint">+{c.points}</span>}
-              </button>))}
-          </div>}
+        <div className="panel p-4">
+          <h3 className="font-display mb-2">Rewards & bonuses</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <L t="Per column (pts)"><input className="field num" type="number" value={colBonus} onChange={e => setColBonus(e.target.value)} /></L>
+            <L t="Full card (pts)"><input className="field num" type="number" value={fullBonus} onChange={e => setFullBonus(e.target.value)} /></L>
+          </div>
+          <div className="mt-3 space-y-2">{[...LETTERS, "FULL"].map(k => (
+            <div key={k} className="grid grid-cols-[44px_1fr] items-center gap-2"><span className="font-display grid h-9 place-items-center border border-graphite text-sm">{k === "FULL" ? "★" : k}</span>
+              <input className="field" placeholder={k === "FULL" ? "Reward for full card" : `Reward for striking ${k}`} value={rw[k] ?? ""} onChange={e => setRw({ ...rw, [k]: e.target.value })} /></div>))}</div>
+          <button className="key-primary mt-3 w-full" onClick={() => cmd.run({ action: "settings", bingo_rewards: rw, bingo_line_bonus: colBonus, bingo_full_bonus: fullBonus })}>Save rewards</button>
+          <p className="mt-2 text-[11px] text-faint">Teams see the reward text under each letter. Bonus changes apply to columns completed after you save.</p>
+        </div>
+      </div>
+      <div className="panel p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-2xl">{edit ? "Edit squares" : tName ? `Stamping · ${tName}` : "Bingo board"}</h2>
+          <button className="key key-sm" data-on={edit} onClick={() => setEdit(!edit)}><Pencil size={12} />{edit ? "Done editing" : "Edit squares"}</button>
+        </div>
+        {edit ? <div className="grid grid-cols-5 gap-2">{w.cells.map(c => <CellEditor key={c.idx} c={c} cmd={cmd} />)}</div>
+          : !team ? <Empty title="Choose a team">Tap a square to stamp a dare, and tap again to undo. Completing a column strikes its letter and pays the bonus automatically.</Empty>
+          : <BingoBoard cells={w.cells} marked={marked} busy={cmd.busy} rewards={w.settings.bingo_rewards} onToggle={idx => cmd.run({ action: "bingo_toggle", team_id: team, idx })} />}
       </div>
       <div className="panel p-4">
-        <h3 className="font-display mb-2 font-bold">Leaderboard</h3>
-        <div className="max-h-[520px] space-y-1 overflow-auto">{progress.map(({ t, n }) => (
-          <button key={t.id} onClick={() => { setTeam(t.id); setEdit(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-frost">
+        <h3 className="font-display mb-2">Progress</h3>
+        <div className="max-h-[560px] space-y-1 overflow-auto">{progress.map(({ t, n }) => (
+          <button key={t.id} onClick={() => { setTeam(t.id); setEdit(false); }} className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-frost ${team === t.id ? "bg-frost font-semibold" : ""}`}>
             <span className="min-w-0 flex-1 truncate">{t.team_name}</span>
-            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-frost"><span className="block h-full bg-cobalt" style={{ width: `${(n / 24) * 100}%` }} /></span>
+            <span className="h-1.5 w-16 overflow-hidden border border-graphite bg-white"><span className="block h-full bg-graphite" style={{ width: `${(n / 24) * 100}%` }} /></span>
             <span className="num w-6 text-right text-xs">{n}</span>
           </button>))}</div>
       </div>
@@ -385,10 +413,52 @@ function CellEditor({ c, cmd }: { c: World["cells"][number]; cmd: Cmd }) {
   const [label, setLabel] = useState(c.label); const [pts, setPts] = useState(String(c.points));
   const dirty = label !== c.label || pts !== String(c.points);
   return (
-    <div className="flex aspect-square flex-col gap-1 border border-graphite/60 p-1">
-      <textarea className="min-h-0 flex-1 resize-none rounded bg-white/70 p-1 text-[10px] leading-tight outline-none" value={label} onChange={e => setLabel(e.target.value)} disabled={c.is_free} />
-      <div className="flex gap-1"><input className="num w-full rounded bg-white/70 px-1 text-[10px]" value={pts} onChange={e => setPts(e.target.value)} disabled={c.is_free} />
-        {dirty && <button className="rounded bg-cobalt px-1 text-[10px] text-white" onClick={() => cmd.run({ action: "cell_save", idx: c.idx, label, points: pts })}>✓</button>}</div>
+    <div className="flex aspect-square flex-col gap-1 border border-graphite bg-white p-1 shadow-[2px_2px_0_#111]">
+      <textarea className="min-h-0 flex-1 resize-none bg-frost/50 p-1 text-[10px] leading-tight outline-none" value={label} onChange={e => setLabel(e.target.value)} disabled={c.is_free} />
+      <div className="flex gap-1"><input className="num w-full border border-graphite/30 px-1 text-[10px]" value={pts} onChange={e => setPts(e.target.value)} disabled={c.is_free} />
+        {dirty && <button className="bg-graphite px-1.5 text-[10px] text-white" onClick={() => cmd.run({ action: "cell_save", idx: c.idx, label, points: pts })}>Save</button>}</div>
+    </div>
+  );
+}
+
+/* ============================ HISTORY ============================ */
+function HistoryTab({ w, cmd, paddle }: Ctx) {
+  const [team, setTeam] = useState("");
+  const [items, setItems] = useState<World["activity"]>(w.activity);
+  const [loading, setLoading] = useState(false);
+  const name = (id: string | null) => (id ? w.teams.find(t => t.id === id)?.team_name ?? "?" : "Everyone");
+  useEffect(() => {
+    let alive = true; setLoading(true);
+    fetch("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "activity_for", team_id: team || undefined }) })
+      .then(r => r.json()).then(j => { if (alive && j.data) setItems(j.data); }).finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [team, w.activity.length]);
+  const sum = (k: "points" | "minutes") => items.reduce((a, i) => a + (i[k] ?? 0), 0);
+  const tps = team ? w.teamPowerups.filter(p => p.team_id === team || p.target_team_id === team) : [];
+  return (
+    <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
+      <div className="space-y-5">
+        <div className="panel p-4">
+          <div className="mb-2 flex items-center justify-between"><h3 className="font-display">Team</h3>{team && <button className="key key-sm" onClick={() => setTeam("")}>All teams</button>}</div>
+          <TeamPicker w={w} paddle={paddle} value={team} onChange={setTeam} balanceOf />
+        </div>
+        {team && (
+          <div className="panel foil p-4">
+            <p className="eyebrow">{name(team)} · right now</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="well p-3"><p className="eyebrow">Points</p><p className="num text-2xl font-bold">{w.balances[team] ?? 0}</p></div>
+              <div className="well p-3"><p className="eyebrow">Time ±</p><p className="num text-2xl font-bold">{fmtMins(tps.reduce((a, p) => a + ((p.target_team_id ? p.target_team_id === team : p.team_id === team) ? p.minutes_delta : 0), 0))}</p></div>
+              <div className="well p-3"><p className="eyebrow">Power-ups</p><p className="num text-2xl font-bold">{tps.filter(p => p.team_id === team).length}</p></div>
+              <div className="well p-3"><p className="eyebrow">Lots won</p><p className="num text-2xl font-bold">{w.purchases.filter(p => p.team_id === team).length}</p></div>
+            </div>
+            <div className="mt-3 space-y-1">{tps.map(p => <div key={p.id} className="flex justify-between text-xs"><span className={p.used ? "line-through opacity-60" : ""}>{p.name}{p.target_team_id && p.team_id !== team ? " (on you)" : ""}</span><span className="num">{fmtMins(p.minutes_delta)}</span></div>)}</div>
+          </div>
+        )}
+      </div>
+      <div>
+        <div className="mb-3 flex items-center justify-between text-xs text-muted"><span>{loading ? "Loading…" : `${items.length} entries · net ${sum("points") >= 0 ? "+" : ""}${sum("points")} pts`}</span></div>
+        <HistoryFeed items={items} teamName={team ? undefined : name} />
+      </div>
     </div>
   );
 }
@@ -499,35 +569,60 @@ function Powerups({ w, cmd, paddle }: Ctx) {
 function EventPanel({ w, cmd }: Ctx) {
   const toLocal = (iso: string | null) => { if (!iso) return ""; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   const [end, setEnd] = useState(toLocal(w.settings.hackathon_end_at));
+  const [hh, setHh] = useState("3"); const [mm, setMm] = useState("0");
   const [msg, setMsg] = useState(w.settings.broadcast ?? "");
-  const [bonus, setBonus] = useState(String(w.settings.bingo_line_bonus));
   const now = useNow();
-  const left = w.settings.hackathon_end_at && now ? new Date(w.settings.hackathon_end_at).getTime() - now : null;
+  const paused = w.settings.clock_paused_at;
+  const endMs = w.settings.hackathon_end_at ? new Date(w.settings.hackathon_end_at).getTime() : null;
+  const left = endMs && now ? endMs - (paused ? new Date(paused).getTime() : now) : null;
+  const started = w.settings.hackathon_started_at;
+  const total = endMs && started ? endMs - new Date(started).getTime() : null;
+  const pct = left != null && total ? Math.max(0, Math.min(100, (left / total) * 100)) : 0;
   const ranked = [...w.teams].sort((a, b) => (w.balances[b.id] ?? 0) - (w.balances[a.id] ?? 0));
+  const clock = (op: string, extra: Record<string, unknown> = {}) => cmd.run({ action: "clock", op, ...extra });
+  const mins = (Number(hh) || 0) * 60 + (Number(mm) || 0);
   return (
-    <div className="grid gap-5 xl:grid-cols-3">
+    <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr_.8fr]">
       <div className="panel foil p-5">
-        <p className="eyebrow">Hackathon clock</p>
-        <div className="lcd mt-3 px-5 py-4 text-center text-4xl font-bold">{left == null ? "--:--:--" : fmtClock(left)}</div>
-        <L t="Official deadline (all teams)" c="mt-4"><input type="datetime-local" className="field" value={end} onChange={e => setEnd(e.target.value)} /></L>
-        <button className="key-primary mt-3 w-full" onClick={() => cmd.run({ action: "settings", hackathon_end_at: end || null })}>Set deadline</button>
-        <p className="mt-2 text-[11px] text-faint">Each team&apos;s own deadline is this time plus or minus its power-ups.</p>
+        <div className="flex items-center justify-between"><p className="eyebrow">Hackathon clock</p>
+          <span className="chip"><span className={`led ${!endMs ? "led-closed" : paused ? "led-upcoming" : "led-live"}`} />{!endMs ? "not started" : paused ? "paused" : "running"}</span></div>
+        <div className="lcd mt-3 px-5 py-5 text-center text-6xl font-bold">{left == null ? "--:--:--" : fmtClock(left)}</div>
+        <div className="mt-2 h-2 border border-graphite bg-white"><div className="h-full bg-graphite transition-all" style={{ width: `${pct}%` }} /></div>
+        <p className="mt-1 text-xs text-muted">{endMs ? <>Official deadline <b>{fmtTime(w.settings.hackathon_end_at)}</b>{started && <> · started {fmtTime(started)}</>}</> : "Set a duration and start."}</p>
+
+        <div className="mt-5 grid grid-cols-[1fr_auto] items-end gap-3">
+          <div>
+            <p className="eyebrow mb-2">Duration</p>
+            <div className="flex flex-wrap gap-2">{[60, 120, 180, 240, 360].map(m => <button key={m} className="key key-sm" data-on={mins === m} onClick={() => { setHh(String(Math.floor(m / 60))); setMm("0"); }}>{m / 60}h</button>)}</div>
+            <div className="mt-2 flex items-center gap-2"><input className="field num w-20" type="number" min={0} value={hh} onChange={e => setHh(e.target.value)} /><span className="text-sm">h</span><input className="field num w-20" type="number" min={0} max={59} value={mm} onChange={e => setMm(e.target.value)} /><span className="text-sm">m</span></div>
+          </div>
+          <button className="key-primary key-lg" disabled={mins <= 0 || cmd.busy} onClick={() => (!endMs || confirm(`Restart the clock at ${hh}h ${mm}m from now? Team power-up minutes still apply on top.`)) && clock("start", { minutes: mins })}><Play size={16} /> {endMs ? "Restart" : "Start"}</button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          {paused ? <button className="key" disabled={cmd.busy} onClick={() => clock("resume")}><Play size={14} /> Resume</button>
+            : <button className="key" disabled={!endMs || cmd.busy} onClick={() => clock("pause")}><Pause size={14} /> Pause</button>}
+          <button className="key" disabled={!endMs || cmd.busy} onClick={() => clock("adjust", { minutes: -5 })}>−5 min all</button>
+          <button className="key" disabled={!endMs || cmd.busy} onClick={() => clock("adjust", { minutes: 5 })}>+5 min all</button>
+          <button className="key" disabled={!endMs || cmd.busy} onClick={() => clock("adjust", { minutes: -15 })}>−15 min all</button>
+          <button className="key" disabled={!endMs || cmd.busy} onClick={() => clock("adjust", { minutes: 15 })}>+15 min all</button>
+          <button className="key-danger" disabled={!endMs || cmd.busy} onClick={() => confirm("Clear the clock? Teams will see --:--:--.") && clock("reset")}><Timer size={14} /> Clear</button>
+        </div>
+        <details className="mt-4"><summary className="cursor-pointer text-xs font-semibold text-muted">Set an exact deadline instead</summary>
+          <div className="mt-2 flex gap-2"><input type="datetime-local" className="field" value={end} onChange={e => setEnd(e.target.value)} /><button className="key" onClick={() => clock("set_end", { end_at: end || null })}>Set</button></div></details>
       </div>
       <div className="panel p-5">
         <p className="eyebrow">Announcement banner</p>
-        <textarea className="field mt-3 h-24" maxLength={200} value={msg} onChange={e => setMsg(e.target.value)} placeholder="e.g. Bay A → move to Idea Lab for Spin in 5 min" />
+        <textarea className="field mt-3 h-28" maxLength={200} value={msg} onChange={e => setMsg(e.target.value)} placeholder="e.g. Bay A → move to Idea Lab for bingo in 5 min" />
         <div className="mt-3 flex gap-2"><button className="key flex-1" onClick={() => { setMsg(""); cmd.run({ action: "settings", broadcast: "" }); }}>Clear</button><button className="key-primary flex-1" onClick={() => cmd.run({ action: "settings", broadcast: msg })}><Radio size={14} /> Broadcast</button></div>
-        <hr className="my-5 border-silver/60" />
-        <L t="Bingo line bonus"><div className="flex gap-2"><input className="field num" type="number" value={bonus} onChange={e => setBonus(e.target.value)} /><button className="key" onClick={() => cmd.run({ action: "settings", bingo_line_bonus: bonus })}>Save</button></div></L>
-        <p className="mt-1 text-[11px] text-faint">Applies to lines completed after you save.</p>
-        <label className="mt-5 flex items-center justify-between gap-3 text-sm"><span>Show the top 5 and each team&apos;s rank to teams</span>
+        <label className="mt-6 flex items-center justify-between gap-3 text-sm"><span>Show the top 5 and each team&apos;s rank to teams</span>
           <button className="key key-sm" data-on={w.settings.leaderboard_visible} onClick={() => cmd.run({ action: "settings", leaderboard_visible: !w.settings.leaderboard_visible })}>{w.settings.leaderboard_visible ? "Visible" : "Hidden"}</button></label>
       </div>
       <div className="panel p-5">
         <p className="eyebrow">Standings (by points)</p>
-        <div className="mt-3 max-h-[440px] space-y-1 overflow-auto">{ranked.map((t, i) => (
-          <div key={t.id} className={`flex items-center gap-3 rounded-lg px-2 py-1.5 text-sm ${i < 3 ? "well" : ""}`}>
-            <span className={`num w-6 text-right font-bold ${i === 0 ? "text-brass" : "text-faint"}`}>{i + 1}</span>
+        <div className="mt-3 max-h-[460px] space-y-1 overflow-auto">{ranked.map((t, i) => (
+          <div key={t.id} className={`flex items-center gap-3 px-2 py-1.5 text-sm ${i < 3 ? "well" : ""}`}>
+            <span className={`num w-6 text-right font-bold ${i < 3 ? "" : "text-faint"}`}>{i + 1}</span>
             <span className="min-w-0 flex-1 truncate">{t.team_name}</span>
             <span className="num font-semibold">{w.balances[t.id] ?? 0}</span>
           </div>))}</div>

@@ -124,3 +124,33 @@ export function Empty({ title, children }: { title: string; children?: React.Rea
     </div>
   );
 }
+
+/* ---------- Brand mark: glass hourglass with the poster's prismatic "potion" ---------- */
+export function LogoGlass({ size = 40, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-label="Daemon Hour" className={className}>
+      <defs>
+        <linearGradient id="lg-potion" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#FF8FCB" /><stop offset=".28" stopColor="#FFC98A" /><stop offset=".5" stopColor="#7FEAFF" /><stop offset=".72" stopColor="#7E9BFF" /><stop offset="1" stopColor="#C597FF" />
+          <animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="10s" repeatCount="indefinite" />
+        </linearGradient>
+        <linearGradient id="lg-cap" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#3A4270" /><stop offset="1" stopColor="#11142A" /></linearGradient>
+        <radialGradient id="lg-glass" cx=".3" cy=".25" r=".9"><stop offset="0" stopColor="#fff" stopOpacity=".95" /><stop offset=".5" stopColor="#E8EEFF" stopOpacity=".35" /><stop offset="1" stopColor="#B8C4E8" stopOpacity=".5" /></radialGradient>
+        <clipPath id="lg-top"><path d="M20 13 H44 C44 25 35 29 33.5 32 H30.5 C29 29 20 25 20 13Z" /></clipPath>
+        <clipPath id="lg-bot"><path d="M30.5 32 H33.5 C35 35 44 39 44 51 H20 C20 39 29 35 30.5 32Z" /></clipPath>
+      </defs>
+      <g transform="rotate(-22 32 32)">
+        <path d="M20 13 H44 C44 25 35 29 33.5 32 C35 35 44 39 44 51 H20 C20 39 29 35 30.5 32 C29 29 20 25 20 13Z" fill="url(#lg-glass)" stroke="#11142A" strokeWidth="1.4" />
+        <g clipPath="url(#lg-top)"><rect x="16" y="20" width="32" height="16" fill="url(#lg-potion)" /></g>
+        <g clipPath="url(#lg-bot)"><path d="M16 53 L16 44 Q32 36 48 44 L48 53Z" fill="url(#lg-potion)" /></g>
+        <rect x="31.3" y="31" width="1.4" height="14" fill="#FFC98A" opacity=".9" />
+        <path d="M23.5 16 C24 22 28 26 30 28" stroke="#fff" strokeWidth="1.6" fill="none" strokeLinecap="round" opacity=".9" />
+        <rect x="15" y="8" width="34" height="6" rx="2" fill="url(#lg-cap)" />
+        <rect x="15" y="50" width="34" height="6" rx="2" fill="url(#lg-cap)" />
+        <rect x="17" y="14" width="2.4" height="36" rx="1" fill="#11142A" /><rect x="44.6" y="14" width="2.4" height="36" rx="1" fill="#11142A" />
+      </g>
+      <path d="M8 46 C14 40 12 34 18 30" stroke="#C9D2EA" strokeWidth="2" fill="none" strokeLinecap="round" opacity=".9" />
+      <path d="M56 18 C50 22 52 28 46 32" stroke="#C9D2EA" strokeWidth="2" fill="none" strokeLinecap="round" opacity=".9" />
+    </svg>
+  );
+}
