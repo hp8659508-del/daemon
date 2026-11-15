@@ -49,14 +49,15 @@ export function fmtTime(iso: string | null) {
 export function fmtMins(m: number) { return `${m > 0 ? "+" : m < 0 ? "−" : "±"}${Math.abs(m)} min`; }
 
 /* ---------- Realtime + polling refresh so screens follow the admin instantly ---------- */
-export function LiveSync({ tables, every = 12000 }: { tables: string[]; every?: number }) {
+export function LiveSync({ tables, every = 12000, jitter = 0 }: { tables: string[]; every?: number; jitter?: number }) {
   const router = useRouter();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<"live" | "polling">("polling");
   const bump = useCallback(() => {
     if (pending.current) return;
-    pending.current = setTimeout(() => { pending.current = null; router.refresh(); }, 350);
-  }, [router]);
+    // jitter spreads 40 screens' refreshes over a short window instead of one spike
+    pending.current = setTimeout(() => { pending.current = null; router.refresh(); }, 350 + Math.random() * jitter);
+  }, [router, jitter]);
   useEffect(() => {
     const supabase = createClient();
     const ch = supabase.channel("daemon-live");

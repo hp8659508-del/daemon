@@ -10,7 +10,7 @@ export const ACTIVITIES: { key: Activity; label: string; verb: string }[] = [
 ];
 
 export type Stage = { team_id: string; activity: Activity; status: StageStatus; opened_at: string | null; closed_at: string | null; closing_points: number | null; closing_end_at: string | null };
-export type Team = { id: string; team_name: string; username: string; bay: string | null };
+export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null };
 export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean };
 export type Powerup = { id: string; name: string; description: string | null; minutes_delta: number; targets_rival: boolean; color: string; is_active: boolean };
 export type TeamPowerup = { id: string; team_id: string; powerup_id: string | null; name: string; minutes_delta: number; target_team_id: string | null; source: string; note: string | null; used: boolean; created_at: string };
@@ -18,7 +18,7 @@ export type Purchase = { id: string; team_id: string; item_id: string; purchase_
 export type Tx = { id: string; team_id: string; description: string; points: number; created_at: string };
 export type Activity_ = { id: string; team_id: string | null; kind: string; action: string; label: string; points: number | null; minutes: number | null; created_at: string };
 export type Cell = { idx: number; label: string; points: number; is_free: boolean };
-export type Settings = { hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
+export type Settings = { live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
 
 export const LINES = [
   [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
@@ -67,7 +67,7 @@ async function allTransactions(db: ReturnType<typeof createAdminClient>) {
 export async function loadWorld() {
   const db = createAdminClient();
   const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity] = await Promise.all([
-    db.from("teams").select("id,team_name,username,bay").order("team_name"),
+    db.from("teams").select("id,team_name,username,bay,paddle").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
     db.from("team_stages").select("*"),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active").order("item_name"),
     db.from("powerups").select("*").order("created_at"),
@@ -76,7 +76,7 @@ export async function loadWorld() {
     allTransactions(db),
     db.from("bingo_cells").select("*").order("idx"),
     db.from("team_bingo").select("team_id,idx,marked_at"),
-    db.from("event_settings").select("hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
+    db.from("event_settings").select("live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
     db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").order("created_at", { ascending: false }).limit(1000),
   ]);
   const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity].find(r => r.error)?.error;
@@ -96,7 +96,7 @@ export async function loadWorld() {
     cells: (cells.data ?? []) as Cell[],
     marks: (marks.data ?? []) as { team_id: string; idx: number; marked_at: string }[],
     activity: (activity.data ?? []) as Activity_[],
-    settings: (settings.data ?? { hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
+    settings: (settings.data ?? { live_lots: {}, broadcasts: {}, hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
     balances,
   };
 }
@@ -110,8 +110,10 @@ export function teamSlice(w: World, teamId: string) {
     .map(p => ({ ...p, from_name: names[p.team_id] ?? "", target_name: p.target_team_id ? names[p.target_team_id] ?? "" : null }));
   const stageFor = (a: Activity) => w.stages.find(s => s.team_id === teamId && s.activity === a) ?? { team_id: teamId, activity: a, status: "upcoming" as StageStatus, opened_at: null, closed_at: null, closing_points: null, closing_end_at: null };
   const ranked = [...w.teams].sort((a, b) => (w.balances[b.id] ?? 0) - (w.balances[a.id] ?? 0));
-  const lot = w.settings.live_lot;
-  const lotVisible = lot && (!lot.team_ids || lot.team_ids.includes(teamId));
+  const vkey = team?.bay || "all";
+  const lots = w.settings.live_lots ?? {};
+  const lot = (lots[vkey] ?? lots.all ?? null) as Settings["live_lot"];
+  const lotVisible = !!lot;
   return {
     team,
     balance: w.balances[teamId] ?? 0,
@@ -130,7 +132,7 @@ export function teamSlice(w: World, teamId: string) {
     cells: w.cells,
     marked: w.marks.filter(m => m.team_id === teamId).map(m => m.idx),
     lineBonus: w.settings.bingo_line_bonus,
-    broadcast: w.settings.broadcast,
+    broadcast: [w.settings.broadcasts?.all, team?.bay ? w.settings.broadcasts?.[team.bay] : null, w.settings.broadcast].filter(Boolean).join("   ◆   ") || null,
     liveLot: lotVisible && lot ? { ...lot, item: w.items.find(i => i.id === lot.item_id) ?? null, sold: w.purchases.filter(p => p.item_id === lot.item_id).length } : null,
     catalogue: w.items.filter(i => i.is_active).map(i => ({ ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, powerup: w.powerups.find(p => p.id === i.powerup_id)?.name ?? null })),
     rank: w.settings.leaderboard_visible ? ranked.findIndex(t => t.id === teamId) + 1 : 0,

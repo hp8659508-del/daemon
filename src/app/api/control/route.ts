@@ -27,8 +27,10 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const { data: profile } = await supabase.from("profiles").select("role, venue").eq("id", user.id).maybeSingle();
   if (profile?.role !== "admin") return NextResponse.json({ error: "Admin only." }, { status: 403 });
+  const myVenue: string | null = profile.venue ?? null;   // null = host, sees every venue
+  const isHost = !myVenue;
 
   const db = createAdminClient();
   type LogRow = { team_id: string | null; kind: string; action: string; label: string; points?: number | null; minutes?: number | null };
@@ -41,7 +43,153 @@ export async function POST(request: Request) {
 
   try {
     const fail = (e: { message: string } | null) => { if (e) throw new Error(e.message); };
+
+    /* ---------- permission + venue scope, checked once for every action ---------- */
+    const HOST_ONLY = ["clock", "bay", "staff_list", "staff_save", "staff_delete", "team_delete", "team_move", "powerup_save", "cell_save"];
+    if (!isHost && HOST_ONLY.includes(body.action)) throw new Error("Only a host can do this.");
+    if (!isHost && body.action === "settings") throw new Error("Only a host can change event settings.");
+    if (!isHost) {
+      const touched = new Set<string>();
+      if (Array.isArray(body.team_ids)) body.team_ids.forEach((x: unknown) => typeof x === "string" && touched.add(x));
+      if (typeof body.team_id === "string") touched.add(body.team_id);
+      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
+      if (byRow[body.action] && typeof body.id === "string") {
+        const [table, col] = byRow[body.action];
+        const { data: row } = await db.from(table).select(col).eq("id", body.id).maybeSingle();
+        if (row) touched.add((row as Record<string, string>)[col]);
+      }
+      if (touched.size) {
+        const { data: rows } = await db.from("teams").select("id,bay").in("id", [...touched]);
+        if ((rows ?? []).length !== touched.size || (rows ?? []).some(r => r.bay !== myVenue))
+          throw new Error(`You can only act on ${myVenue} teams.`);
+      }
+    }
+
     switch (body.action) {
+      /* ---------------- per-venue live lot + banner ---------------- */
+      case "live_lot": {
+        const key = isHost ? (typeof body.venue === "string" && body.venue ? body.venue : "all") : myVenue!;
+        const { data: st } = await db.from("event_settings").select("live_lots").eq("id", true).maybeSingle();
+        const lots = { ...(st?.live_lots ?? {}) } as Record<string, unknown>;
+        lots[key] = body.lot ? { item_id: str(body.lot.item_id), price: int(body.lot.price, 0) } : null;
+        fail((await db.from("event_settings").update({ live_lots: lots }).eq("id", true)).error);
+        return NextResponse.json({ ok: true, message: body.lot ? "Lot on screens" : "Lot cleared" });
+      }
+      case "broadcast": {
+        const key = isHost ? (typeof body.venue === "string" && body.venue ? body.venue : "all") : myVenue!;
+        const { data: st } = await db.from("event_settings").select("broadcasts").eq("id", true).maybeSingle();
+        const b = { ...(st?.broadcasts ?? {}) } as Record<string, string>;
+        const text = typeof body.text === "string" ? body.text.trim().slice(0, 200) : "";
+        if (text) b[key] = text; else delete b[key];
+        fail((await db.from("event_settings").update({ broadcasts: b, ...(key === "all" ? { broadcast: null } : {}) }).eq("id", true)).error);
+        return NextResponse.json({ ok: true, message: text ? `Banner sent to ${key === "all" ? "everyone" : key}` : "Banner cleared" });
+      }
+
+      /* ---------------- teams: create / rename / move / password / delete ---------------- */
+      case "team_create": {
+        const name = str(body.team_name, 80);
+        const username = name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+        if (!username) throw new Error("Team name needs letters or numbers.");
+        const password = typeof body.password === "string" && body.password.length >= 6 ? body.password : `${username}_123`;
+        const bay = isHost ? (body.bay || null) : myVenue;
+        const { data: maxP } = await db.from("teams").select("paddle").order("paddle", { ascending: false, nullsFirst: false }).limit(1).maybeSingle();
+        const { data: team, error: te } = await db.from("teams").insert({ team_name: name, username, bay, paddle: (maxP?.paddle ?? 0) + 1 }).select("id").single();
+        if (te) throw new Error(te.code === "23505" ? "A team with this name already exists." : te.message);
+        const { data: au, error: ae } = await db.auth.admin.createUser({ email: `${username.toLowerCase()}@teams.daemonhour.invalid`, password, email_confirm: true, user_metadata: { team_name: name, team_username: username } });
+        if (ae || !au?.user) { await db.from("teams").delete().eq("id", team.id); throw new Error(ae?.message ?? "Could not create login."); }
+        const pe = (await db.from("profiles").insert({ id: au.user.id, team_id: team.id, role: "team", must_change_password: Boolean(body.force_change) })).error;
+        if (pe) { await db.auth.admin.deleteUser(au.user.id); await db.from("teams").delete().eq("id", team.id); throw new Error(pe.message); }
+        const { data: es } = await db.from("event_settings").select("starting_points,starting_points_published").eq("id", true).maybeSingle();
+        if (es?.starting_points_published && Number(es.starting_points)) await db.from("transactions").insert({ team_id: team.id, description: "Initial event points", points: Number(es.starting_points), transaction_type: "bonus", created_by: user.id });
+        await log({ team_id: team.id, kind: "team", action: "created", label: `Team created in ${bay ?? "no venue"}` });
+        return NextResponse.json({ ok: true, message: `${name} created · login ${username} / ${password}` });
+      }
+      case "team_rename": {
+        const id = str(body.team_id); const name = str(body.team_name, 80);
+        const { error } = await db.from("teams").update({ team_name: name }).eq("id", id);
+        if (error) throw new Error(error.code === "23505" ? "That name is taken." : error.message);
+        await log({ team_id: id, kind: "team", action: "renamed", label: `Renamed to ${name} (login unchanged)` });
+        return NextResponse.json({ ok: true, message: "Renamed. The login username stays the same." });
+      }
+      case "team_move": {
+        const teamIds = ids(body.team_ids);
+        const bay = typeof body.bay === "string" && body.bay ? body.bay.slice(0, 40) : null;
+        fail((await db.from("teams").update({ bay }).in("id", teamIds)).error);
+        await log(teamIds.map(team_id => ({ team_id, kind: "team", action: "moved", label: `Moved to ${bay ?? "unassigned"}` })));
+        return NextResponse.json({ ok: true, message: `${teamIds.length} team(s) → ${bay ?? "unassigned"}` });
+      }
+      case "team_password": {
+        const id = str(body.team_id);
+        const { data: t } = await db.from("teams").select("username").eq("id", id).single();
+        const password = typeof body.password === "string" && body.password.length >= 6 ? body.password : `${t?.username}_123`;
+        const { data: prof } = await db.from("profiles").select("id").eq("team_id", id).eq("role", "team").maybeSingle();
+        if (!prof) throw new Error("This team has no login account.");
+        const { error } = await db.auth.admin.updateUserById(prof.id, { password });
+        fail(error);
+        await db.from("profiles").update({ must_change_password: false }).eq("id", prof.id);
+        await log({ team_id: id, kind: "team", action: "password", label: "Password reset by organiser" });
+        return NextResponse.json({ ok: true, message: `Password set to ${password}` });
+      }
+      case "team_delete": {
+        const teamIds = ids(body.team_ids);
+        const { data: profs } = await db.from("profiles").select("id").in("team_id", teamIds);
+        // children first: anything that may not cascade
+        await db.from("team_powerups").update({ target_team_id: null }).in("target_team_id", teamIds);
+        for (const t of ["team_powerups", "team_bingo", "team_stages", "purchases", "transactions", "activity_log"]) await db.from(t).delete().in("team_id", teamIds);
+        await db.from("profiles").delete().in("team_id", teamIds);
+        for (const p of profs ?? []) await db.auth.admin.deleteUser(p.id);
+        fail((await db.from("teams").delete().in("id", teamIds)).error);
+        await log({ team_id: null, kind: "team", action: "deleted", label: `Deleted ${teamIds.length} team(s)` });
+        return NextResponse.json({ ok: true, message: `Deleted ${teamIds.length} team(s) and their logins` });
+      }
+
+      /* ---------------- staff (hosts + venue admins) ---------------- */
+      case "staff_list": {
+        const { data: profs } = await db.from("profiles").select("id,venue").eq("role", "admin");
+        const out: { id: string; venue: string | null; email: string; last: string | null; me: boolean }[] = [];
+        for (const p of profs ?? []) {
+          const { data } = await db.auth.admin.getUserById(p.id);
+          out.push({ id: p.id, venue: p.venue, email: data?.user?.email ?? "?", last: data?.user?.last_sign_in_at ?? null, me: p.id === user.id });
+        }
+        return NextResponse.json({ ok: true, data: out });
+      }
+      case "staff_save": {
+        const venue = typeof body.venue === "string" && body.venue ? body.venue.slice(0, 40) : null;
+        if (body.id) {
+          if (body.id === user.id && venue) throw new Error("You can't limit your own host account.");
+          fail((await db.from("profiles").update({ venue }).eq("id", body.id).eq("role", "admin")).error);
+          if (typeof body.password === "string" && body.password) {
+            if (body.password.length < 8) throw new Error("Password must be at least 8 characters.");
+            fail((await db.auth.admin.updateUserById(body.id, { password: body.password })).error);
+          }
+          return NextResponse.json({ ok: true, message: "Organiser updated" });
+        }
+        const email = str(body.email, 120).toLowerCase();
+        if (typeof body.password !== "string" || body.password.length < 8) throw new Error("Password must be at least 8 characters.");
+        let uid: string | null = null;
+        const { data: created, error: ce } = await db.auth.admin.createUser({ email, password: body.password, email_confirm: true });
+        if (ce) {
+          // already exists → promote the existing account
+          const { data: list } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const found = list?.users?.find(u => u.email?.toLowerCase() === email);
+          if (!found) throw new Error(ce.message);
+          uid = found.id;
+          await db.auth.admin.updateUserById(uid, { password: body.password });
+        } else uid = created.user.id;
+        fail((await db.from("profiles").upsert({ id: uid, role: "admin", venue, team_id: null, must_change_password: false })).error);
+        return NextResponse.json({ ok: true, message: `${email} can now sign in as ${venue ?? "host"}` });
+      }
+      case "staff_delete": {
+        const id = str(body.id);
+        if (id === user.id) throw new Error("You can't remove yourself.");
+        const { count } = await db.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin").is("venue", null);
+        const { data: target } = await db.from("profiles").select("venue").eq("id", id).maybeSingle();
+        if (!target?.venue && (count ?? 0) <= 1) throw new Error("Keep at least one host.");
+        await db.from("profiles").delete().eq("id", id);
+        await db.auth.admin.deleteUser(id);
+        return NextResponse.json({ ok: true, message: "Organiser removed" });
+      }
+
       /* ---------------- stage control ---------------- */
       case "stage": {
         const teamIds = ids(body.team_ids);
@@ -251,7 +399,13 @@ export async function POST(request: Request) {
       /* ---------------- history ---------------- */
       case "activity_for": {
         const q = db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").order("created_at", { ascending: false }).limit(1000);
-        const { data, error } = body.team_id ? await q.eq("team_id", str(body.team_id)) : await q;
+        let data, error;
+        if (body.team_id) ({ data, error } = await q.eq("team_id", str(body.team_id)));
+        else if (!isHost || body.venue) {
+          const v = isHost ? String(body.venue) : myVenue!;
+          const { data: ts } = await (v === "__unassigned" ? db.from("teams").select("id").is("bay", null) : db.from("teams").select("id").eq("bay", v));
+          ({ data, error } = await q.in("team_id", (ts ?? []).map(t => t.id)));
+        } else ({ data, error } = await q);
         fail(error);
         return NextResponse.json({ ok: true, data });
       }

@@ -100,3 +100,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ticker { animation: ticker 28s linear infinite; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.strike-v { transform-origin: top; animation: strikeV .5s cubic-bezier(.16,1,.3,1) both; }
+.strike-h { transform-origin: left; animation: strikeH .4s cubic-bezier(.16,1,.3,1) both; }
+@keyframes strikeV { from { transform: translateX(-50%) scaleY(0); } to { transform: translateX(-50%) scaleY(1); } }
+@keyframes strikeH { from { transform: scaleX(0); } to { transform: scaleX(1); } }

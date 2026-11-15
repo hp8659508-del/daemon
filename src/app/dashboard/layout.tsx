@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { LogOut, Users, Gauge, KeyRound } from "lucide-react";
+import { LogOut, Gauge, KeyRound } from "lucide-react";
 import { LogoGlass } from "@/components/ui";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -30,7 +30,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <nav className="ml-auto flex items-center gap-2">
             {admin && <>
               <Link href="/dashboard/control" className="key key-sm"><Gauge size={14} /> Control</Link>
-              <Link href="/dashboard/teams" className="key key-sm"><Users size={14} /> Teams</Link>
             </>}
             <Link href="/account/change-password" className="key key-sm" title="Change password"><KeyRound size={14} /></Link>
             <form action={signOut}><button className="key key-sm" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button></form>

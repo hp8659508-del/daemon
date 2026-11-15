@@ -52,7 +52,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
 
       <div className="flex items-center justify-between text-xs text-muted">
         <span>Points and power-ups are set by the organisers. Your screen updates by itself.</span>
-        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log"]} />
+        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log"]} every={15000} jitter={1500} />
       </div>
     </div>
   );

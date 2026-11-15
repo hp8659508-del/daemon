@@ -12,7 +12,8 @@ export default async function DashboardPage() {
   if (!profile.team_id) return <div className="panel p-6 text-sm">This account is not linked to a team. Ask an organiser.</div>;
   try {
     const world = await loadWorld();
-    const paddle = world.teams.findIndex(t => t.id === profile.team_id) + 1;
+    const me = world.teams.find(t => t.id === profile.team_id);
+    const paddle = me?.paddle ?? world.teams.findIndex(t => t.id === profile.team_id) + 1;
     const v = teamSlice(world, profile.team_id);
     // Full history for this team (the world snapshot only holds the latest 1000 events overall).
     const { data: mine } = await createAdminClient().from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").eq("team_id", profile.team_id).order("created_at", { ascending: false }).limit(500);
