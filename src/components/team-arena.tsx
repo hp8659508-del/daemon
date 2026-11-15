@@ -1,19 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
+import { Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
+import MemberTiles from "@/components/member-tiles";
 import { COLUMNS } from "@/lib/bingo-shared";
 import { Hourglass, LiveSync, useNow, fmtClock, fmtTime, fmtMins, StatusLed, Empty } from "@/components/ui";
 
-type Tab = Activity | "loadout" | "history";
+type Tab = Activity | "loadout" | "history" | "team";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "auction", label: "Auction", icon: Gavel },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
   { key: "loadout", label: "Loadout", icon: Backpack },
   { key: "history", label: "History", icon: History },
+  { key: "team", label: "Team", icon: Users },
 ];
 
 export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }) {
@@ -23,14 +25,24 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
   const prevLive = useRef(firstLive);
   useEffect(() => { if (firstLive && firstLive !== prevLive.current) setTab(firstLive); prevLive.current = firstLive; }, [firstLive]);
 
+  if (v.locked) return (
+    <section className="panel foil mx-auto mt-10 grid max-w-xl place-items-center p-10 text-center">
+      <Hourglass fill={0.5} size={90} />
+      <p className="eyebrow mt-6">Portal paused</p>
+      <h1 className="font-display mt-2 text-4xl">Hold tight</h1>
+      <p className="mt-3 text-sm text-muted">{v.lockMessage || "The organisers have paused the portal for a moment. This page will come back on its own."}</p>
+      <div className="mt-6"><LiveSync tables={["event_settings"]} every={10000} jitter={2000} /></div>
+    </section>
+  );
   return (
     <div className="space-y-6">
       {v.broadcast && <Broadcast text={v.broadcast} />}
+      <HelpButton open={v.helpOpen} />
       <Instrument v={v} paddle={paddle} />
 
       <div className="rail" role="tablist">
         {TABS.map(t => {
-          const st = t.key === "loadout" || t.key === "history" ? null : v.stages[t.key].status;
+          const st = t.key === "loadout" || t.key === "history" || t.key === "team" ? null : v.stages[t.key].status;
           const Icon = t.icon;
           return (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>
@@ -48,11 +60,21 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
         {tab === "bingo" && <Stage v={v} a="bingo"><BingoCard v={v} /></Stage>}
         {tab === "loadout" && <Loadout v={v} />}
         {tab === "history" && <HistoryFeed items={v.activity} />}
+        {tab === "team" && (
+          <section className="space-y-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div><p className="eyebrow">{v.team?.bay ?? "Venue to be announced"} · paddle {String(paddle).padStart(2, "0")}</p><h2 className="font-display mt-1 text-4xl">Your team</h2></div>
+              <span className="chip">{v.members.length} member{v.members.length === 1 ? "" : "s"} · {v.members.filter(m => m.checked_in).length} checked in</span>
+            </div>
+            <MemberTiles teamId={v.team?.id ?? ""} members={v.members} />
+            <p className="text-xs text-muted">See a wrong detail or a missing teammate? Tap <b>Need help</b> and an organiser will fix it.</p>
+          </section>
+        )}
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted">
         <span>Points and power-ups are set by the organisers. Your screen updates by itself.</span>
-        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log"]} every={15000} jitter={1500} />
+        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log", "team_members", "help_requests"]} every={15000} jitter={1500} />
       </div>
     </div>
   );
@@ -370,6 +392,27 @@ export function HistoryFeed({ items, teamName }: { items: TeamView["activity"]; 
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+/* ---------------- Need help ---------------- */
+function HelpButton({ open }: { open: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(open);
+  useEffect(() => setSent(open), [open]);
+  const send = async (cancel = false) => {
+    let message: string | null = null;
+    if (!cancel) { message = window.prompt("What do you need? (optional)", ""); if (message === null) return; }
+    setBusy(true);
+    await fetch("/api/team/help", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cancel ? { cancel: true } : { message }) }).catch(() => null);
+    setSent(!cancel); setBusy(false);
+  };
+  return (
+    <div className="fixed bottom-5 left-5 z-40">
+      {sent
+        ? <button className="key-primary key-lg" disabled={busy} onClick={() => send(true)} title="Tap to cancel"><LifeBuoy size={18} className="animate-spin [animation-duration:3s]" /> Help is on the way</button>
+        : <button className="key key-lg" disabled={busy} onClick={() => send()}><LifeBuoy size={18} /> Need help</button>}
     </div>
   );
 }

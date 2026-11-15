@@ -83,6 +83,9 @@ export async function POST(request: Request) {
         actor: user.id
       });
 
+      // keep the organiser-visible copy in sync
+      await adminClient.from("team_secrets").upsert({ team_id: profile.team_id, password, source: "team", updated_at: new Date().toISOString() });
+
       try {
         await (adminClient.from("teams") as any).update({ password_changed_at: new Date().toISOString() }).eq("id", profile.team_id);
       } catch {}

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords } from "lucide-react";
+import { Users, Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords } from "lucide-react";
 import type { World, Activity, StageStatus, Team } from "@/lib/game";
 import { useCommand, LiveSync, StatusLed, fmtTime, fmtMins, Empty, useNow, fmtClock } from "@/components/ui";
 import BingoBoard from "@/components/bingo-board";
+import MemberTiles from "@/components/member-tiles";
 import { HistoryFeed } from "@/components/team-arena";
 import { LETTERS } from "@/lib/bingo-shared";
 import { VENUES, UNASSIGNED, scopeWorld, venueKey, venueLabel } from "@/lib/venues";
@@ -60,7 +61,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="chip"><StatusLed status={liveCount(a) ? "live" : "closed"} /> {a} · {liveCount(a)}</span>)}
-          <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "activity_log", "event_settings"]} every={20000} />
+          <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "activity_log", "event_settings", "team_members", "help_requests"]} every={20000} />
         </div>
       </header>
 
@@ -70,6 +71,23 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
           {[null, ...VENUES, UNASSIGNED].map(v => {
             const n = v === null ? full.teams.length : full.teams.filter(t => (v === UNASSIGNED ? !t.bay : t.bay === v)).length;
             return <button key={v ?? "all"} className="key key-sm" data-on={scope === v} onClick={() => pickScope(v)}>{venueLabel(v)} <span className="num opacity-60">{n}</span></button>;
+          })}
+        </div>
+      )}
+      {w.help.length > 0 && (
+        <div className="panel foil flex flex-wrap items-center gap-2 p-3">
+          <span className="chip"><span className="led led-live" style={{ background: "#C23B22" }} /> {w.help.length} team{w.help.length > 1 ? "s" : ""} need help</span>
+          {w.help.map(h => {
+            const t = full.teams.find(x => x.id === h.team_id);
+            const mins = Math.max(0, Math.round((Date.now() - new Date(h.created_at).getTime()) / 60000));
+            return (
+              <span key={h.id} className="flex items-center gap-2 border border-graphite bg-white px-2 py-1 text-xs">
+                <b>#{String(paddle[h.team_id] ?? "?").padStart(2, "0")} {t?.team_name}</b>{t?.bay && <span className="text-faint">{t.bay}</span>}
+                {h.message && <span className="max-w-[220px] truncate text-muted">“{h.message}”</span>}
+                <span className="num text-faint">{mins}m</span>
+                <button className="key key-sm !py-0.5" onClick={() => cmd.run({ action: "help_resolve", id: h.id })}>Done</button>
+              </span>
+            );
           })}
         </div>
       )}
@@ -646,6 +664,8 @@ function EventPanel({ w, cmd, staff, vkey, scope }: Ctx) {
             <span className="num font-semibold">{w.balances[t.id] ?? 0}</span>
           </div>))}</div>
       </div>
+      <PortalPanel {...{ w, cmd, staff }} />
+      <ResetPanel {...{ w, cmd, staff, scope }} />
     </div>
   );
 }
@@ -659,6 +679,15 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [del, setDel] = useState<string[] | null>(null);
   const [confirmTxt, setConfirmTxt] = useState("");
+  const [openTeam, setOpenTeam] = useState<string | null>(null);
+  const [secrets, setSecrets] = useState<Record<string, { password: string | null; source: string }>>({});
+  const [reveal, setReveal] = useState<Set<string>>(new Set());
+  const [revealAll, setRevealAll] = useState(false);
+  const loadSecrets = async () => {
+    const j = await cmd.run({ action: "secrets" }, { quiet: true });
+    if (j?.data) setSecrets(Object.fromEntries((j.data as { team_id: string; password: string | null; source: string }[]).map(r => [r.team_id, r])));
+  };
+  useEffect(() => { loadSecrets(); }, [w.activity.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getPwStatus = (teamId: string) => {
     const logs = w.activity.filter(a => a.team_id === teamId && (a.action === "password_changed" || a.action === "password" || a.action === "password_reset"));
@@ -713,19 +742,20 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
           <button className="key key-sm" onClick={() => setSel(new Set(list.map(t => t.id)))}><CheckSquare size={12} /> Select all</button>
           <button className="key key-sm" disabled={!sel.size} onClick={() => setSel(new Set())}><XCircle size={12} /> Clear</button>
           <button className="key key-sm" onClick={exportCsv}>Export CSV</button>
+          <button className="key key-sm" data-on={revealAll} onClick={() => setRevealAll(!revealAll)}>{revealAll ? <EyeOff size={12} /> : <Eye size={12} />} Passwords</button>
         </div>
-        {staff.isHost && sel.size > 0 && (
+        {sel.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b border-graphite bg-frost/60 px-4 py-3 text-sm">
             <b className="num">{sel.size}</b> selected <MoveRight size={14} />
-            {VENUES.map(v => <button key={v} className="key key-sm" onClick={() => cmd.run({ action: "team_move", team_ids: [...sel], bay: v })}>Move to {v}</button>)}
-            <button className="key key-sm" onClick={() => cmd.run({ action: "team_move", team_ids: [...sel], bay: null })}>Unassign</button>
+            {staff.isHost && VENUES.map(v => <button key={v} className="key key-sm" onClick={() => cmd.run({ action: "team_move", team_ids: [...sel], bay: v })}>Move to {v}</button>)}
+            {staff.isHost && <button className="key key-sm" onClick={() => cmd.run({ action: "team_move", team_ids: [...sel], bay: null })}>Unassign</button>}
             <button className="key-danger key-sm ml-auto" onClick={() => { setDel([...sel]); setConfirmTxt(""); }}><Trash2 size={12} /> Delete</button>
           </div>
         )}
         <div className="max-h-[640px] overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-white text-left text-[10px] uppercase tracking-[.16em] text-muted"><tr className="border-b border-graphite">
-              <th className="w-8 p-3" /><th className="p-3">#</th><th className="p-3">Team</th><th className="p-3">Login</th><th className="p-3">Password</th><th className="p-3">Venue</th><th className="p-3 text-right">Pts</th><th className="p-3">Rounds</th><th className="p-3" />
+              <th className="w-8 p-3" /><th className="p-3">#</th><th className="p-3">Team</th><th className="p-3">Login</th><th className="p-3">Password</th><th className="p-3">Crew</th><th className="p-3">Venue</th><th className="p-3 text-right">Pts</th><th className="p-3">Rounds</th><th className="p-3" />
             </tr></thead>
             <tbody>{list.map(t => {
               const pw = getPwStatus(t.id);
@@ -736,7 +766,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                 <td className="p-3 font-semibold">{renaming?.id === t.id ? (
                   <form className="flex gap-1" onSubmit={async e => { e.preventDefault(); if (await cmd.run({ action: "team_rename", team_id: t.id, team_name: renaming.name })) setRenaming(null); }}>
                     <input autoFocus className="field !py-1" value={renaming.name} onChange={e => setRenaming({ id: t.id, name: e.target.value })} /><button className="key key-sm">Save</button><button type="button" className="key key-sm" onClick={() => setRenaming(null)}>×</button></form>
-                ) : <button className="text-left hover:underline" title="Rename" onClick={() => setRenaming({ id: t.id, name: t.team_name })}>{t.team_name}</button>}</td>
+                ) : <span className="flex items-center gap-1.5"><button className="text-left underline-offset-2 hover:underline" title="Open team" onClick={() => setOpenTeam(t.id)}>{t.team_name}</button><button className="text-faint hover:text-graphite" title="Rename" onClick={() => setRenaming({ id: t.id, name: t.team_name })}><Pencil size={11} /></button></span>}</td>
                 <td className="num p-3 text-xs">{t.username}</td>
                 <td className="p-3">
                   {pw.changed ? (
@@ -748,7 +778,11 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                       Default
                     </span>
                   )}
+                  <button className="num ml-2 inline-flex items-center gap-1 text-xs" title="Show / hide" onClick={() => { const n = new Set(reveal); n.has(t.id) ? n.delete(t.id) : n.add(t.id); setReveal(n); }}>
+                    {revealAll || reveal.has(t.id) ? (secrets[t.id]?.password ?? <span className="text-faint">unknown</span>) : "••••••"}
+                  </button>
                 </td>
+                <td className="p-3"><button className="num text-xs underline-offset-2 hover:underline" onClick={() => setOpenTeam(t.id)}>{w.members.filter(m => m.team_id === t.id).length} · <span className="text-ok">{w.members.filter(m => m.team_id === t.id && m.checked_in).length}✓</span></button></td>
                 <td className="p-3">{staff.isHost ? (
                   <select className="border border-graphite bg-white px-1.5 py-1 text-xs" value={t.bay ?? ""} onChange={e => cmd.run({ action: "team_move", team_ids: [t.id], bay: e.target.value || null })}>
                     <option value="">Unassigned</option>{VENUES.map(v => <option key={v}>{v}</option>)}</select>) : <span className="text-xs">{t.bay}</span>}</td>
@@ -756,7 +790,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                 <td className="p-3"><span className="flex gap-1">{(["auction", "spin", "bingo"] as Activity[]).map(a => <StatusLed key={a} status={stageOf(t.id, a)} />)}</span></td>
                 <td className="p-3"><div className="flex justify-end gap-1">
                   <button className="key key-sm" title="Reset password" onClick={() => { const pw = window.prompt(`New password for ${t.team_name} (min 6 chars). Leave blank for ${t.username}_123`, ""); if (pw !== null) cmd.run({ action: "team_password", team_id: t.id, password: pw }); }}><KeyRound size={12} /></button>
-                  {staff.isHost && <button className="key key-sm" title="Delete team" onClick={() => { setDel([t.id]); setConfirmTxt(""); }}><Trash2 size={12} /></button>}
+                  <button className="key key-sm" title="Delete team" onClick={() => { setDel([t.id]); setConfirmTxt(""); }}><Trash2 size={12} /></button>
                 </div></td>
               </tr>);
             })}</tbody>
@@ -777,6 +811,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
           </form>
           <p className="mt-2 text-[11px] text-faint">The login username is the team name in CAPS_WITH_UNDERSCORES. Renaming a team later keeps its login.</p>
         </div>
+        <ImportMembers cmd={cmd} />
         <div className="panel p-5">
           <p className="eyebrow">Venues</p>
           <div className="mt-3 space-y-2">{[...VENUES, null].map(v => {
@@ -786,15 +821,160 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
         </div>
       </div>
 
+      {openTeam && w.teams.find(t => t.id === openTeam) && (
+        <TeamDrawer {...{ w, cmd, paddle, stageOf, staff }} teamId={openTeam} secret={secrets[openTeam]} close={() => setOpenTeam(null)} onDelete={() => { setDel([openTeam]); setConfirmTxt(""); setOpenTeam(null); }} reloadSecrets={loadSecrets} />
+      )}
       {del && (
         <Modal title={`Delete ${del.length} team(s)?`} close={() => setDel(null)}>
           <p className="text-sm">This permanently removes <b>{del.map(name).join(", ")}</b>, their login, points, power-ups, bingo marks and history. There&apos;s no undo.</p>
-          <p className="mt-3 text-xs text-muted">Type <b className="num">DELETE</b> to confirm.</p>
-          <input className="field mt-2" value={confirmTxt} onChange={e => setConfirmTxt(e.target.value)} />
+          <p className="mt-3 text-xs text-muted">Enter the delete password to confirm.</p>
+          <input className="field num mt-2" type="password" autoFocus value={confirmTxt} onChange={e => setConfirmTxt(e.target.value)} placeholder="Delete password" />
           <div className="mt-4 flex justify-end gap-2"><button className="key" onClick={() => setDel(null)}>Cancel</button>
-            <button className="key-danger" disabled={confirmTxt !== "DELETE" || cmd.busy} onClick={async () => { if (await cmd.run({ action: "team_delete", team_ids: del })) { setDel(null); setSel(new Set()); } }}>Delete forever</button></div>
+            <button className="key-danger" disabled={!confirmTxt || cmd.busy} onClick={async () => { if (await cmd.run({ action: "team_delete", team_ids: del, pin: confirmTxt })) { setDel(null); setSel(new Set()); } }}>Delete forever</button></div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+function TeamDrawer({ w, cmd, paddle, stageOf, staff, teamId, secret, close, onDelete, reloadSecrets }: Pick<Ctx, "w" | "cmd" | "paddle" | "stageOf" | "staff"> & { teamId: string; secret?: { password: string | null; source: string }; close: () => void; onDelete: () => void; reloadSecrets: () => void }) {
+  const t = w.teams.find(x => x.id === teamId)!;
+  const [show, setShow] = useState(false);
+  const members = w.members.filter(m => m.team_id === teamId);
+  const tps = w.teamPowerups.filter(p => p.team_id === teamId || p.target_team_id === teamId);
+  useEffect(() => { const k = (e: KeyboardEvent) => e.key === "Escape" && close(); window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [close]);
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-graphite/30 backdrop-blur-sm" onClick={close}>
+      <aside className="animate-rise h-full w-full max-w-4xl overflow-y-auto border-l border-graphite bg-porcelain p-5 sm:p-7" onClick={e => e.stopPropagation()}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="eyebrow">Paddle {String(paddle[t.id]).padStart(2, "0")} · {t.bay ?? "Unassigned"}</p>
+            <h2 className="font-display mt-1 text-4xl">{t.team_name}</h2>
+          </div>
+          <div className="flex gap-2"><button className="key-danger key-sm" onClick={onDelete}><Trash2 size={12} /> Delete team</button><button className="key key-sm" onClick={close}>Close ✕</button></div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-4">
+          <div className="panel-tight p-3"><p className="eyebrow">Points</p><p className="num text-2xl font-bold">{w.balances[t.id] ?? 0}</p></div>
+          <div className="panel-tight p-3"><p className="eyebrow">Rounds</p><p className="mt-2 flex gap-1.5">{(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="flex items-center gap-1 text-[10px] uppercase"><StatusLed status={stageOf(t.id, a)} />{a[0]}</span>)}</p></div>
+          <div className="panel-tight p-3"><p className="eyebrow">Power-ups</p><p className="num text-2xl font-bold">{tps.filter(p => p.team_id === t.id).length}</p></div>
+          <div className="panel-tight p-3"><p className="eyebrow">Bingo</p><p className="num text-2xl font-bold">{w.marks.filter(m => m.team_id === t.id).length}/24</p></div>
+        </div>
+
+        <div className="panel mt-5 flex flex-wrap items-center gap-3 p-4">
+          <KeyRound size={16} />
+          <div className="min-w-0 flex-1">
+            <p className="eyebrow">Login</p>
+            <p className="num text-sm"><b>{t.username}</b> · {show ? (secret?.password ?? "unknown (changed before tracking began)") : "••••••••"} <span className="text-[10px] uppercase text-faint">{secret?.source === "team" ? "set by team" : secret?.source === "organiser" ? "set by organiser" : "default"}</span></p>
+          </div>
+          <button className="key key-sm" onClick={() => setShow(!show)}>{show ? <EyeOff size={12} /> : <Eye size={12} />} {show ? "Hide" : "Show"}</button>
+          <button className="key key-sm" onClick={async () => { const pw = window.prompt(`New password for ${t.team_name} (min 6). Blank = ${t.username}_123`, ""); if (pw !== null && await cmd.run({ action: "team_password", team_id: t.id, password: pw })) reloadSecrets(); }}>Reset</button>
+          {secret?.password && <button className="key key-sm" onClick={() => navigator.clipboard?.writeText(`${t.username} / ${secret.password}`).catch(() => null)}>Copy</button>}
+        </div>
+
+        <div className="mt-6 flex items-end justify-between">
+          <h3 className="font-display text-xl">Members</h3>
+          <span className="text-xs text-muted">{members.length} people · {members.filter(m => m.checked_in).length} checked in · no password needed to edit</span>
+        </div>
+        <div className="mt-3"><MemberTiles teamId={t.id} members={members} run={p => cmd.run(p)} busy={cmd.busy} /></div>
+
+        {tps.length > 0 && (
+          <div className="panel mt-6 p-4">
+            <h3 className="font-display mb-2">Power-ups</h3>
+            {tps.map(p => <div key={p.id} className="table-row flex items-center gap-2 py-2 text-sm"><span className={`min-w-0 flex-1 truncate ${p.used ? "line-through opacity-60" : ""}`}>{p.name}{p.target_team_id === t.id && p.team_id !== t.id ? " (played on them)" : ""}</span><span className="num text-xs">{fmtMins(p.minutes_delta)}</span><span className="chip">{p.source}</span></div>)}
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+/** Paste rows copied from Excel / Google Sheets: Team, Role, Name, USN, Dept, Year, Phone, Email */
+function ImportMembers({ cmd }: { cmd: Cmd }) {
+  const [txt, setTxt] = useState("");
+  const [replace, setReplace] = useState(false);
+  const rows = txt.trim() ? txt.trim().split(/\r?\n/).map(l => l.split(l.includes("\t") ? "\t" : ",").map(c => c.trim().replace(/^"|"$/g, ""))) : [];
+  const body = rows.filter(r => !/^team$/i.test(r[0] ?? ""));
+  return (
+    <div className="panel p-5">
+      <p className="eyebrow flex items-center gap-2"><Users size={13} /> Import members</p>
+      <p className="mt-1 text-[11px] text-muted">Paste rows from your registration sheet, one person per line, in this column order: <b>Team, Role (lead/member), Name, USN, Dept, Year, Phone, Email</b>.</p>
+      <textarea className="field num mt-3 h-28 text-[11px]" placeholder={"Straw Hats\tlead\tAnanya R\t1NH23CS001\tCSE\t3\t98xxxxxx\tananya@…"} value={txt} onChange={e => setTxt(e.target.value)} />
+      <label className="mt-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace existing members of those teams</label>
+      <button className="key-primary mt-3 w-full" disabled={!body.length || cmd.busy} onClick={async () => {
+        const payload = body.map(r => ({ team: r[0], role: r[1], full_name: r[2], usn: r[3], department: r[4], year: r[5], phone: r[6], email: r[7] }));
+        if (await cmd.run({ action: "members_import", rows: payload, replace })) setTxt("");
+      }}>Import {body.length || ""} {body.length === 1 ? "person" : "people"}</button>
+    </div>
+  );
+}
+
+function PortalPanel({ w, cmd, staff }: Pick<Ctx, "w" | "cmd" | "staff">) {
+  const [msg, setMsg] = useState(w.settings.portal_message ?? "");
+  const [sp, setSp] = useState(String(w.settings.starting_points ?? 0));
+  if (!staff.isHost) return null;
+  return (
+    <div className="panel p-5">
+      <p className="eyebrow">Team portal</p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-sm">{w.settings.portal_locked ? <b className="text-err">Locked: teams see a “hold tight” screen</b> : "Open: teams see their dashboard"}</span>
+        <button className={w.settings.portal_locked ? "key-primary key-sm" : "key key-sm"} onClick={() => cmd.run({ action: "settings", portal_locked: !w.settings.portal_locked, portal_message: msg })}>{w.settings.portal_locked ? "Unlock" : "Lock"}</button>
+      </div>
+      <input className="field mt-2" placeholder="Message on the lock screen (optional)" value={msg} onChange={e => setMsg(e.target.value)} />
+      <p className="mt-1 text-[11px] text-faint">Use it while you fix data or reset a round, so nobody sees half-updated numbers.</p>
+      <hr className="my-4 border-silver/30" />
+      <p className="eyebrow">Starting points</p>
+      <div className="mt-2 flex gap-2"><input className="field num" type="number" min={0} value={sp} onChange={e => setSp(e.target.value)} /><button className="key" onClick={() => cmd.run({ action: "settings", starting_points: sp })}>Save</button></div>
+      <p className="mt-1 text-[11px] text-faint">New teams get this many points. To give it to everyone again, use Reset → “Give starting points”.</p>
+    </div>
+  );
+}
+
+const RESET_PARTS: { key: string; label: string; note: string; global?: boolean }[] = [
+  { key: "points", label: "Points → 0", note: "Deletes every ledger entry (also clears auction wins)" },
+  { key: "purchases", label: "Auction wins", note: "Removes sold lots, refunds their price and the power-ups they gave" },
+  { key: "powerups", label: "Power-ups", note: "All granted, spun and rival power-ups" },
+  { key: "bingo", label: "Bingo marks", note: "Every stamped square" },
+  { key: "rounds", label: "Rounds → upcoming", note: "Auction, spin and bingo all back to upcoming" },
+  { key: "help", label: "Help requests", note: "Clears the help queue" },
+  { key: "history", label: "History log", note: "Wipes the activity log" },
+  { key: "starting_points", label: "Give starting points", note: "Adds the starting points after the reset" },
+  { key: "clock", label: "Clock", note: "Clears the hackathon timer", global: true },
+  { key: "lots", label: "Live lots", note: "Clears the lot on every screen", global: true },
+  { key: "banners", label: "Banners", note: "Clears all announcements", global: true },
+];
+function ResetPanel({ w, cmd, staff, scope }: Pick<Ctx, "w" | "cmd" | "staff" | "scope">) {
+  const [parts, setParts] = useState<Set<string>>(new Set());
+  const [pin, setPin] = useState("");
+  const toggle = (k: string) => { const n = new Set(parts); n.has(k) ? n.delete(k) : n.add(k); setParts(n); };
+  const preset = (keys: string[]) => setParts(new Set(keys.filter(k => staff.isHost || !RESET_PARTS.find(p => p.key === k)?.global)));
+  const who = staff.isHost ? (scope ? `${w.teams.length} team(s) in ${venueLabel(scope)}` : `all ${w.teams.length} teams`) : `${w.teams.length} ${staff.venue} team(s)`;
+  return (
+    <div className="panel border-err p-5 xl:col-span-2" style={{ boxShadow: "4px 4px 0 #C23B22" }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="eyebrow text-err">Reset · danger zone</p>
+        <div className="flex flex-wrap gap-2">
+          <button className="key key-sm" onClick={() => preset(["rounds"])}>Restart rounds</button>
+          <button className="key key-sm" onClick={() => preset(["bingo"])}>Restart bingo</button>
+          <button className="key key-sm" onClick={() => preset(["points", "purchases", "powerups", "bingo", "rounds", "help", "history", "starting_points", "clock", "lots", "banners"])}>Fresh event (0 pts)</button>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {RESET_PARTS.filter(p => staff.isHost || !p.global).map(p => (
+          <label key={p.key} className={`flex cursor-pointer items-start gap-2 border px-3 py-2 text-sm ${parts.has(p.key) ? "border-err bg-err/5" : "border-graphite/30 bg-white"}`}>
+            <input type="checkbox" className="mt-1" checked={parts.has(p.key)} onChange={() => toggle(p.key)} />
+            <span><b>{p.label}</b>{p.global && <span className="chip ml-1 !py-0 text-[9px]">event-wide</span>}<br /><span className="text-xs text-muted">{p.note}</span></span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-sm">Applies to <b>{who}</b>. Switch venue at the top to narrow it.</span>
+        <input className="field num ml-auto w-36" type="password" placeholder="Password" value={pin} onChange={e => setPin(e.target.value)} />
+        <button className="key-danger" disabled={!parts.size || !pin || cmd.busy} onClick={async () => {
+          if (!confirm(`Reset ${[...parts].join(", ")} for ${who}? This can't be undone.`)) return;
+          if (await cmd.run({ action: "reset", parts: [...parts], team_ids: w.teams.map(t => t.id), pin })) { setPin(""); setParts(new Set()); }
+        }}><RotateCcw size={14} /> Reset</button>
+      </div>
     </div>
   );
 }

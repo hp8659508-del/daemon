@@ -33,7 +33,7 @@ Then open http://localhost:3000 and sign in with the existing administrator acco
 
 ## `ui` branch: Daemon Hour 2.0
 
-**Before first run:** run `supabase/ui_rebuild_migration.sql`, then `supabase/ui_v2_migration.sql`, then `supabase/ui_v3_venues_migration.sql` (venues, stable paddles, venue admins) (clock controls, activity history, finalised bingo sheet, column bonuses). Paste `supabase/ui_rebuild_migration.sql` into the Supabase SQL editor and run it once. It only adds columns and tables and is safe to re-run. It also turns off team-side buying and spinning, since organisers now record everything.
+**Before first run:** run `supabase/ui_rebuild_migration.sql`, then `supabase/ui_v2_migration.sql`, then `supabase/ui_v3_venues_migration.sql`, `ui_v4_password_status.sql`, `ui_v5_members_reset.sql` (venues, stable paddles, venue admins) (clock controls, activity history, finalised bingo sheet, column bonuses). Paste `supabase/ui_rebuild_migration.sql` into the Supabase SQL editor and run it once. It only adds columns and tables and is safe to re-run. It also turns off team-side buying and spinning, since organisers now record everything.
 
 ### Team leads (`/dashboard`)
 - An instrument panel at the top: a hackathon countdown to **their own** deadline (base deadline ± power-ups), their points, their paddle number, and their rank if you choose to show it.
@@ -75,3 +75,7 @@ The server-side admin routes use the service-role key. Keep it only in `.env.loc
 6. Open http://localhost:3000 and test with the existing admin login and team accounts.
 
 Your Supabase database is external to the project folder, so replacing the application code does not delete team accounts, points, purchases, or activity records.
+
+
+### Delete / reset password
+Deleting teams and the Reset tool ask for a password. It is `123` unless you set `ADMIN_DELETE_PIN` in the environment (recommended for production).

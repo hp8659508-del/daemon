@@ -23,6 +23,8 @@ export function scopeWorld(w: World, venue: string | null): World {
     txs: w.txs.filter(t => has(t.team_id)),
     marks: w.marks.filter(m => has(m.team_id)),
     activity: w.activity.filter(a => has(a.team_id)),
+    members: w.members.filter(m => has(m.team_id)),
+    help: w.help.filter(h => has(h.team_id)),
     balances: Object.fromEntries(Object.entries(w.balances).filter(([k]) => ids.has(k))),
   };
 }

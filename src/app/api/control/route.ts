@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     const fail = (e: { message: string } | null) => { if (e) throw new Error(e.message); };
 
     /* ---------- permission + venue scope, checked once for every action ---------- */
-    const HOST_ONLY = ["clock", "bay", "staff_list", "staff_save", "staff_delete", "team_delete", "team_move", "powerup_save", "cell_save"];
+    const HOST_ONLY = ["clock", "bay", "staff_list", "staff_save", "staff_delete", "team_move", "powerup_save", "cell_save"];
     if (!isHost && HOST_ONLY.includes(body.action)) throw new Error("Only a host can do this.");
     if (!isHost && body.action === "settings") throw new Error("Only a host can change event settings.");
     if (!isHost) {
@@ -101,6 +101,7 @@ export async function POST(request: Request) {
         if (pe) { await db.auth.admin.deleteUser(au.user.id); await db.from("teams").delete().eq("id", team.id); throw new Error(pe.message); }
         const { data: es } = await db.from("event_settings").select("starting_points,starting_points_published").eq("id", true).maybeSingle();
         if (es?.starting_points_published && Number(es.starting_points)) await db.from("transactions").insert({ team_id: team.id, description: "Initial event points", points: Number(es.starting_points), transaction_type: "bonus", created_by: user.id });
+        await db.from("team_secrets").upsert({ team_id: team.id, password, source: "organiser", updated_at: new Date().toISOString() });
         await log({ team_id: team.id, kind: "team", action: "created", label: `Team created in ${bay ?? "no venue"}` });
         return NextResponse.json({ ok: true, message: `${name} created · login ${username} / ${password}` });
       }
@@ -127,21 +128,129 @@ export async function POST(request: Request) {
         const { error } = await db.auth.admin.updateUserById(prof.id, { password });
         fail(error);
         await db.from("profiles").update({ must_change_password: false }).eq("id", prof.id);
+        await db.from("team_secrets").upsert({ team_id: id, password, source: "organiser", updated_at: new Date().toISOString() });
         try { await (db.from("teams") as any).update({ password_changed_at: null }).eq("id", id); } catch {}
         await log({ team_id: id, kind: "team", action: "password", label: "Password reset by organiser" });
         return NextResponse.json({ ok: true, message: `Password set to ${password}` });
       }
       case "team_delete": {
         const teamIds = ids(body.team_ids);
+        if (String(body.pin ?? "") !== (process.env.ADMIN_DELETE_PIN || "123")) throw new Error("Wrong delete password.");
         const { data: profs } = await db.from("profiles").select("id").in("team_id", teamIds);
         // children first: anything that may not cascade
         await db.from("team_powerups").update({ target_team_id: null }).in("target_team_id", teamIds);
-        for (const t of ["team_powerups", "team_bingo", "team_stages", "purchases", "transactions", "activity_log"]) await db.from(t).delete().in("team_id", teamIds);
+        for (const t of ["team_powerups", "team_bingo", "team_stages", "purchases", "transactions", "activity_log", "team_members", "team_secrets", "help_requests"]) await db.from(t).delete().in("team_id", teamIds);
         await db.from("profiles").delete().in("team_id", teamIds);
         for (const p of profs ?? []) await db.auth.admin.deleteUser(p.id);
         fail((await db.from("teams").delete().in("id", teamIds)).error);
         await log({ team_id: null, kind: "team", action: "deleted", label: `Deleted ${teamIds.length} team(s)` });
         return NextResponse.json({ ok: true, message: `Deleted ${teamIds.length} team(s) and their logins` });
+      }
+
+      /* ---------------- passwords, members, help desk ---------------- */
+      case "secrets": {
+        let q = db.from("team_secrets").select("team_id,password,source,updated_at");
+        if (!isHost) { const { data: ts } = await db.from("teams").select("id").eq("bay", myVenue!); q = q.in("team_id", (ts ?? []).map(t => t.id)); }
+        const { data, error } = await q; fail(error);
+        return NextResponse.json({ ok: true, data });
+      }
+      case "member_save": {
+        const teamId = str(body.team_id);
+        const clean = (v: unknown, n = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
+        const row = { team_id: teamId, role: body.role === "lead" ? "lead" : "member", full_name: str(body.full_name, 80), usn: clean(body.usn, 20)?.toUpperCase() ?? null, department: clean(body.department, 60), year: clean(body.year, 10), phone: clean(body.phone, 20), email: clean(body.email, 120), college: clean(body.college, 80) };
+        if (row.role === "lead") await db.from("team_members").update({ role: "member" }).eq("team_id", teamId).eq("role", "lead").neq("id", body.id ?? "00000000-0000-0000-0000-000000000000");
+        const q = body.id ? db.from("team_members").update(row).eq("id", body.id).eq("team_id", teamId) : db.from("team_members").insert(row);
+        fail((await q).error);
+        await log({ team_id: teamId, kind: "team", action: body.id ? "member_updated" : "member_added", label: `${row.role === "lead" ? "Lead" : "Member"}: ${row.full_name}` });
+        return NextResponse.json({ ok: true, message: body.id ? "Member updated" : "Member added" });
+      }
+      case "member_delete": {
+        const { data: m } = await db.from("team_members").select("team_id,full_name").eq("id", str(body.id)).maybeSingle();
+        if (!m) throw new Error("Member not found.");
+        if (!isHost) { const { data: t } = await db.from("teams").select("bay").eq("id", m.team_id).maybeSingle(); if (t?.bay !== myVenue) throw new Error(`You can only act on ${myVenue} teams.`); }
+        fail((await db.from("team_members").delete().eq("id", str(body.id))).error);
+        await log({ team_id: m.team_id, kind: "team", action: "member_removed", label: m.full_name });
+        return NextResponse.json({ ok: true, message: "Member removed" });
+      }
+      case "member_checkin": {
+        const { data: m } = await db.from("team_members").select("team_id").eq("id", str(body.id)).maybeSingle();
+        if (!m) throw new Error("Member not found.");
+        if (!isHost) { const { data: t } = await db.from("teams").select("bay").eq("id", m.team_id).maybeSingle(); if (t?.bay !== myVenue) throw new Error(`You can only act on ${myVenue} teams.`); }
+        fail((await db.from("team_members").update({ checked_in: Boolean(body.checked_in) }).eq("id", str(body.id))).error);
+        return NextResponse.json({ ok: true, message: body.checked_in ? "Checked in" : "Check-in undone" });
+      }
+      case "members_import": {
+        // rows: [{ team, role, full_name, usn, department, year, phone, email }]
+        if (!Array.isArray(body.rows) || !body.rows.length) throw new Error("Nothing to import.");
+        const { data: teams } = await db.from("teams").select("id,team_name,username,bay");
+        const find = (n: string) => (teams ?? []).find(t => t.team_name.toLowerCase().trim() === n.toLowerCase().trim() || t.username.toLowerCase() === n.toLowerCase().trim());
+        const rows: Record<string, unknown>[] = []; const missing = new Set<string>();
+        for (const r of body.rows.slice(0, 1000)) {
+          const t = find(String(r.team ?? ""));
+          if (!t) { missing.add(String(r.team ?? "?")); continue; }
+          if (!isHost && t.bay !== myVenue) { missing.add(`${t.team_name} (other venue)`); continue; }
+          if (!String(r.full_name ?? "").trim()) continue;
+          rows.push({ team_id: t.id, role: /lead/i.test(String(r.role ?? "")) ? "lead" : "member", full_name: String(r.full_name).trim().slice(0, 80), usn: String(r.usn ?? "").trim().toUpperCase().slice(0, 20) || null, department: String(r.department ?? "").trim().slice(0, 60) || null, year: String(r.year ?? "").trim().slice(0, 10) || null, phone: String(r.phone ?? "").trim().slice(0, 20) || null, email: String(r.email ?? "").trim().slice(0, 120) || null });
+        }
+        if (body.replace) await db.from("team_members").delete().in("team_id", [...new Set(rows.map(r => r.team_id as string))]);
+        // only one lead per team: keep the first
+        const seen = new Set<string>();
+        rows.forEach(r => { if (r.role === "lead") { if (seen.has(r.team_id as string)) r.role = "member"; seen.add(r.team_id as string); } });
+        if (!body.replace && seen.size) await db.from("team_members").update({ role: "member" }).in("team_id", [...seen]).eq("role", "lead");
+        if (rows.length) fail((await db.from("team_members").insert(rows)).error);
+        return NextResponse.json({ ok: true, message: `Imported ${rows.length} people${missing.size ? ` · skipped: ${[...missing].slice(0, 5).join(", ")}${missing.size > 5 ? "…" : ""}` : ""}` });
+      }
+      case "help_resolve": {
+        const { data: h } = await db.from("help_requests").select("team_id").eq("id", str(body.id)).maybeSingle();
+        if (!h) throw new Error("Request not found.");
+        if (!isHost) { const { data: t } = await db.from("teams").select("bay").eq("id", h.team_id).maybeSingle(); if (t?.bay !== myVenue) throw new Error(`You can only act on ${myVenue} teams.`); }
+        fail((await db.from("help_requests").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", str(body.id))).error);
+        return NextResponse.json({ ok: true, message: "Marked as handled" });
+      }
+
+      /* ---------------- reset tool ---------------- */
+      case "reset": {
+        if (String(body.pin ?? "") !== (process.env.ADMIN_DELETE_PIN || "123")) throw new Error("Wrong password.");
+        const parts: string[] = Array.isArray(body.parts) ? body.parts : [];
+        if (!parts.length) throw new Error("Choose what to reset.");
+        const GLOBAL = ["clock", "lots", "banners", "catalogue_sales"];
+        if (!isHost && parts.some(p => GLOBAL.includes(p))) throw new Error("Only a host can reset event-wide settings.");
+        // which teams? explicit list, else everything in scope
+        let teamIds: string[] = Array.isArray(body.team_ids) && body.team_ids.length ? body.team_ids : [];
+        if (!teamIds.length) {
+          const { data: ts } = await (isHost ? db.from("teams").select("id") : db.from("teams").select("id").eq("bay", myVenue!));
+          teamIds = (ts ?? []).map(t => t.id);
+        }
+        if (!isHost) {
+          const { data: rows } = await db.from("teams").select("id,bay").in("id", teamIds);
+          if ((rows ?? []).some(r => r.bay !== myVenue)) throw new Error(`You can only reset ${myVenue} teams.`);
+        }
+        const done: string[] = [];
+        const del = async (table: string) => fail((await db.from(table).delete().in("team_id", teamIds)).error);
+        if (parts.includes("purchases") || parts.includes("points")) {
+          const { data: pr } = await db.from("purchases").select("transaction_id").in("team_id", teamIds);
+          await db.from("team_powerups").delete().in("team_id", teamIds).not("purchase_id", "is", null);
+          await del("purchases");
+          const txIds = (pr ?? []).map(r => r.transaction_id).filter(Boolean);
+          if (txIds.length) await db.from("transactions").delete().in("id", txIds); // refund what was spent
+          done.push("auction wins (refunded)");
+        }
+        if (parts.includes("points")) { await del("transactions"); done.push("points → 0"); }
+        if (parts.includes("powerups")) { await del("team_powerups"); await db.from("team_powerups").delete().in("target_team_id", teamIds); done.push("power-ups"); }
+        if (parts.includes("bingo")) { await del("team_bingo"); done.push("bingo marks"); }
+        if (parts.includes("rounds")) { await del("team_stages"); done.push("rounds → upcoming"); }
+        if (parts.includes("help")) { await del("help_requests"); done.push("help requests"); }
+        if (parts.includes("history")) { await del("activity_log"); done.push("history"); }
+        if (parts.includes("starting_points")) {
+          const { data: es } = await db.from("event_settings").select("starting_points").eq("id", true).maybeSingle();
+          const sp = Number(es?.starting_points ?? 0);
+          if (sp) { fail((await db.from("transactions").insert(teamIds.map(team_id => ({ team_id, description: "Starting points", points: sp, transaction_type: "bonus", created_by: user.id })))).error); done.push(`+${sp} starting points`); }
+        }
+        if (parts.includes("clock")) { await db.from("event_settings").update({ hackathon_end_at: null, hackathon_started_at: null, clock_paused_at: null }).eq("id", true); done.push("clock"); }
+        if (parts.includes("lots")) { await db.from("event_settings").update({ live_lots: {}, live_lot: null }).eq("id", true); done.push("live lots"); }
+        if (parts.includes("banners")) { await db.from("event_settings").update({ broadcasts: {}, broadcast: null }).eq("id", true); done.push("banners"); }
+        if (!parts.includes("history")) await log(teamIds.map(team_id => ({ team_id, kind: "reset", action: "reset", label: `Reset: ${done.join(", ")}` })));
+        return NextResponse.json({ ok: true, message: `Reset ${teamIds.length} team(s): ${done.join(", ")}` });
       }
 
       /* ---------------- staff (hosts + venue admins) ---------------- */
@@ -263,6 +372,9 @@ export async function POST(request: Request) {
         if ("bingo_full_bonus" in body) patch.bingo_full_bonus = int(body.bingo_full_bonus, 0, 100000);
         if ("bingo_rewards" in body && body.bingo_rewards && typeof body.bingo_rewards === "object")
           patch.bingo_rewards = Object.fromEntries(["B", "I", "N", "G", "O", "FULL"].map(k => [k, String(body.bingo_rewards[k] ?? "").slice(0, 120)]));
+        if ("portal_locked" in body) patch.portal_locked = Boolean(body.portal_locked);
+        if ("portal_message" in body) patch.portal_message = typeof body.portal_message === "string" ? body.portal_message.slice(0, 200) || null : null;
+        if ("starting_points" in body) patch.starting_points = int(body.starting_points, 0, 1000000);
         if ("leaderboard_visible" in body) patch.leaderboard_visible = Boolean(body.leaderboard_visible);
         if ("live_lot" in body) patch.live_lot = body.live_lot ? { item_id: str(body.live_lot.item_id), price: int(body.live_lot.price, 0), team_ids: Array.isArray(body.live_lot.team_ids) ? body.live_lot.team_ids : undefined } : null;
         fail((await db.from("event_settings").update(patch).eq("id", true)).error);

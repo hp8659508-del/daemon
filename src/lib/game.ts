@@ -17,8 +17,10 @@ export type TeamPowerup = { id: string; team_id: string; powerup_id: string | nu
 export type Purchase = { id: string; team_id: string; item_id: string; purchase_price: number; created_at: string };
 export type Tx = { id: string; team_id: string; description: string; points: number; created_at: string };
 export type Activity_ = { id: string; team_id: string | null; kind: string; action: string; label: string; points: number | null; minutes: number | null; created_at: string };
+export type Member = { id: string; team_id: string; role: "lead" | "member"; full_name: string; usn: string | null; department: string | null; year: string | null; phone: string | null; email: string | null; college: string | null; checked_in: boolean };
+export type Help = { id: string; team_id: string; message: string | null; status: string; created_at: string };
 export type Cell = { idx: number; label: string; points: number; is_free: boolean };
-export type Settings = { live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
+export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
 
 export const LINES = [
   [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
@@ -66,7 +68,7 @@ async function allTransactions(db: ReturnType<typeof createAdminClient>) {
 /** One round-trip snapshot of the whole event. Server-only (service role); callers must authorise first. */
 export async function loadWorld() {
   const db = createAdminClient();
-  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity] = await Promise.all([
+  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help] = await Promise.all([
     db.from("teams").select("id,team_name,username,bay,paddle").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
     db.from("team_stages").select("*"),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active").order("item_name"),
@@ -76,10 +78,12 @@ export async function loadWorld() {
     allTransactions(db),
     db.from("bingo_cells").select("*").order("idx"),
     db.from("team_bingo").select("team_id,idx,marked_at"),
-    db.from("event_settings").select("live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
+    db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
     db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").order("created_at", { ascending: false }).limit(1000),
+    db.from("team_members").select("id,team_id,role,full_name,usn,department,year,phone,email,college,checked_in").order("role").order("created_at"),
+    db.from("help_requests").select("id,team_id,message,status,created_at").eq("status", "open").order("created_at"),
   ]);
-  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity].find(r => r.error)?.error;
+  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help].find(r => r.error)?.error;
   if (firstError) throw new Error(firstError.message + " — have supabase/ui_rebuild_migration.sql and ui_v2_migration.sql been run?");
 
   const balances: Record<string, number> = {};
@@ -96,7 +100,9 @@ export async function loadWorld() {
     cells: (cells.data ?? []) as Cell[],
     marks: (marks.data ?? []) as { team_id: string; idx: number; marked_at: string }[],
     activity: (activity.data ?? []) as Activity_[],
-    settings: (settings.data ?? { live_lots: {}, broadcasts: {}, hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
+    members: (members.data ?? []) as Member[],
+    help: (help.data ?? []) as Help[],
+    settings: (settings.data ?? { portal_locked: false, portal_message: null, live_lots: {}, broadcasts: {}, hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
     balances,
   };
 }
@@ -124,6 +130,10 @@ export function teamSlice(w: World, teamId: string) {
     minutes: minutesFor(teamId, w.teamPowerups),
     baseEnd: w.settings.hackathon_end_at,
     startedAt: w.settings.hackathon_started_at,
+    members: w.members.filter(m => m.team_id === teamId),
+    helpOpen: w.help.some(h => h.team_id === teamId),
+    locked: w.settings.portal_locked,
+    lockMessage: w.settings.portal_message,
     pausedAt: w.settings.clock_paused_at,
     activity: w.activity.filter(a => a.team_id === teamId).slice(0, 200),
     rewards: w.settings.bingo_rewards ?? {},
