@@ -66,6 +66,28 @@ export async function POST(request: Request) {
     }
 
     switch (body.action) {
+      /* ---------------- system check ---------------- */
+      case "health": {
+        const out: { item: string; status: string }[] = [];
+        const { data: h, error: he } = await db.rpc("daemon_health");
+        if (he) out.push({ item: "health function", status: "MISSING: run supabase/ALL_IN_ONE.sql" });
+        else out.push(...((h ?? []) as { item: string; status: string }[]));
+        // probe the exact column sets the app reads
+        const probes: [string, string][] = [
+          ["teams", "id,team_name,username,bay,paddle"], ["team_stages", "team_id,activity,status,closing_points,closing_end_at"],
+          ["auction_items", "id,item_name,min_price,max_price,price_step,quantity,powerup_id"], ["team_powerups", "id,team_id,name,minutes_delta,target_team_id,source,used,purchase_id"],
+          ["team_bingo", "team_id,idx,marked_at,marked_by"], ["bingo_cells", "idx,label,points,is_free"], ["team_members", "id,team_id,role,full_name,usn,department,year,phone,email,checked_in"],
+          ["activity_log", "id,team_id,kind,action,label,points,minutes"], ["help_requests", "id,team_id,message,status"], ["team_secrets", "team_id,password,source"],
+          ["event_settings", "live_lots,broadcasts,hackathon_end_at,clock_paused_at,bingo_rewards,portal_locked,starting_points"],
+        ];
+        for (const [t, cols] of probes) {
+          const { error } = await db.from(t).select(cols).limit(1);
+          out.push({ item: `columns ${t}`, status: error ? `ERROR: ${error.message}` : "OK" });
+        }
+        const t0 = Date.now(); await db.rpc("team_balances"); out.push({ item: "database round-trip", status: `${Date.now() - t0} ms` });
+        return NextResponse.json({ ok: true, data: out });
+      }
+
       /* ---------------- per-venue live lot + banner ---------------- */
       case "live_lot": {
         const key = isHost ? (typeof body.venue === "string" && body.venue ? body.venue : "all") : myVenue!;
@@ -537,6 +559,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Action failed." }, { status: 400 });
+    let msg = e instanceof Error ? e.message : "Action failed.";
+    if (/does not exist|schema cache|Could not find the/i.test(msg)) msg += ". The database is missing an update: run supabase/ALL_IN_ONE.sql in Supabase.";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

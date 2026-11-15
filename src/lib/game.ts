@@ -84,7 +84,8 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
     db.from("purchases").select("id,team_id,item_id,purchase_price,created_at").order("created_at", { ascending: false }),
-    tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(300) : allTransactions(db),
+    tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(300)
+        : db.from("transactions").select("id,team_id,description,points,created_at").order("created_at", { ascending: false }).limit(1000),
     db.from("bingo_cells").select("*").order("idx"),
     own(db.from("team_bingo").select("team_id,idx,marked_at")),
     db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
@@ -101,7 +102,7 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     for (const r of bal.data as { team_id: string; balance: number }[]) balances[r.team_id] = Number(r.balance);
   } else {
     // ui_v6 not run yet: fall back to summing the ledger ourselves
-    const all = tid ? await allTransactions(db) : txs;
+    const all = await allTransactions(db);
     for (const t of (all.data ?? []) as Tx[]) balances[t.team_id] = (balances[t.team_id] ?? 0) + Number(t.points ?? 0);
   }
 

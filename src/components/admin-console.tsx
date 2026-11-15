@@ -396,7 +396,19 @@ function Spin({ w, cmd, paddle, stageOf }: Ctx) {
 function Bingo({ w, cmd, paddle, stageOf, staff }: Ctx) {
   const [team, setTeam] = useState("");
   const [edit, setEdit] = useState(false);
-  const marked = new Set(w.marks.filter(m => m.team_id === team).map(m => m.idx));
+  // Optimistic stamps: show instantly, reconcile when the server answers.
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const serverMarked = new Set(w.marks.filter(m => m.team_id === team).map(m => m.idx));
+  const marked = new Set(serverMarked);
+  Object.entries(pending).forEach(([k, on]) => { const [tid, i] = k.split(":"); if (tid === team) { on ? marked.add(+i) : marked.delete(+i); } });
+  useEffect(() => { setPending(p => Object.fromEntries(Object.entries(p).filter(([k, on]) => { const [tid, i] = k.split(":"); return tid !== team || serverMarked.has(+i) !== on; }))); }, [w.marks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stamp = async (idx: number) => {
+    const key = `${team}:${idx}`; const on = !marked.has(idx);
+    setPending(p => ({ ...p, [key]: on }));
+    const r = await cmd.run({ action: "bingo_toggle", team_id: team, idx, on }, { quiet: true });
+    if (!r) setPending(p => { const n = { ...p }; delete n[key]; return n; });
+    else if (r.data?.full) cmd.toast("FULL CARD BINGO!");
+  };
   const progress = w.teams.map(t => ({ t, n: w.marks.filter(m => m.team_id === t.id).length })).sort((a, b) => b.n - a.n);
   const [rw, setRw] = useState<Record<string, string>>({ ...Object.fromEntries([...LETTERS, "FULL"].map(k => [k, ""])), ...(w.settings.bingo_rewards ?? {}) });
   const [colBonus, setColBonus] = useState(String(w.settings.bingo_line_bonus));
@@ -430,7 +442,7 @@ function Bingo({ w, cmd, paddle, stageOf, staff }: Ctx) {
         </div>
         {edit ? <div className="grid grid-cols-5 gap-2">{w.cells.map(c => <CellEditor key={c.idx} c={c} cmd={cmd} />)}</div>
           : !team ? <Empty title="Choose a team">Tap a square to stamp a dare, and tap again to undo. Completing a column strikes its letter and pays the bonus automatically.</Empty>
-          : <BingoBoard cells={w.cells} marked={marked} busy={cmd.busy} rewards={w.settings.bingo_rewards} onToggle={idx => cmd.run({ action: "bingo_toggle", team_id: team, idx, on: !marked.has(idx) })} />}
+          : <BingoBoard cells={w.cells} marked={marked} rewards={w.settings.bingo_rewards} onToggle={stamp} />}
       </div>
       <div className="panel p-4">
         <h3 className="font-display mb-2">Progress</h3>
@@ -676,6 +688,7 @@ function EventPanel({ w, cmd, staff, vkey, scope }: Ctx) {
             <span className="num font-semibold">{w.balances[t.id] ?? 0}</span>
           </div>))}</div>
       </div>
+      <SystemCheck cmd={cmd} />
       <PortalPanel {...{ w, cmd, staff }} />
       <ResetPanel {...{ w, cmd, staff, scope }} />
     </div>
@@ -917,6 +930,28 @@ function ImportMembers({ cmd }: { cmd: Cmd }) {
         const payload = body.map(r => ({ team: r[0], role: r[1], full_name: r[2], usn: r[3], department: r[4], year: r[5], phone: r[6], email: r[7] }));
         if (await cmd.run({ action: "members_import", rows: payload, replace })) setTxt("");
       }}>Import {body.length || ""} {body.length === 1 ? "person" : "people"}</button>
+    </div>
+  );
+}
+
+function SystemCheck({ cmd }: Pick<Ctx, "cmd">) {
+  const [rows, setRows] = useState<{ item: string; status: string }[] | null>(null);
+  const [running, setRunning] = useState(false);
+  const run = async () => { setRunning(true); const j = await cmd.run({ action: "health" }, { quiet: true }); setRows(j?.data ?? null); setRunning(false); };
+  const bad = (rows ?? []).filter(r => !(r.status === "OK" || / ms$/.test(r.status)));
+  return (
+    <div className="panel p-5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="eyebrow">System check</p>
+        <button className="key key-sm" disabled={running} onClick={run}>{running ? "Checking…" : rows ? "Run again" : "Run check"}</button>
+      </div>
+      {!rows ? <p className="mt-2 text-xs text-muted">Checks every table, column and database function the portal needs. Run it after any database change and before doors open.</p> : (
+        <>
+          <p className={`mt-3 text-sm font-bold ${bad.length ? "text-err" : "text-ok"}`}>{bad.length ? `${bad.length} problem(s): run supabase/ALL_IN_ONE.sql in Supabase, then check again` : "All good, ready for the event"}</p>
+          <div className="mt-2 max-h-56 space-y-1 overflow-auto text-xs">{rows.map(r => (
+            <div key={r.item} className="flex justify-between gap-3"><span className="text-muted">{r.item}</span><span className={`num text-right ${r.status === "OK" || / ms$/.test(r.status) ? "text-ok" : "text-err"}`}>{r.status}</span></div>))}</div>
+        </>
+      )}
     </div>
   );
 }
