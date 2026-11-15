@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
       if (byRow[body.action] && typeof body.id === "string") {
         const [table, col] = byRow[body.action];
-        const { data: row } = await db.from(table).select(col).eq("id", body.id).maybeSingle();
+        const { data: row } = await (db as any).from(table).select(col).eq("id", body.id).maybeSingle();
         if (row) touched.add((row as Record<string, string>)[col]);
       }
       if (touched.size) {
