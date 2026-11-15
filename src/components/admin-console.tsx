@@ -521,11 +521,11 @@ function Points({ w, cmd, paddle }: Ctx) {
           {sel.size > 0 && (
             <div className="mt-3 flex gap-2 border-t border-graphite/20 pt-3">
               <button className="key key-sm flex-1 text-xs" disabled={cmd.busy} onClick={() => {
-                const pin = window.prompt(`Reset points to 0 for ${sel.size} team(s)? Enter PIN:`, "123");
+                const pin = window.prompt(`Reset points to 0 for ${sel.size} team(s)? Enter PIN:`, "");
                 if (pin) cmd.run({ action: "reset", pin, parts: ["points"], team_ids: [...sel] });
               }}>Reset to 0 pts</button>
               <button className="key key-sm flex-1 text-xs" disabled={cmd.busy} onClick={() => {
-                const pin = window.prompt(`Reset to starting points for ${sel.size} team(s)? Enter PIN:`, "123");
+                const pin = window.prompt(`Reset to starting points for ${sel.size} team(s)? Enter PIN:`, "");
                 if (pin) cmd.run({ action: "reset", pin, parts: ["points", "starting_points"], team_ids: [...sel] });
               }}>Reset to starting pts</button>
             </div>
