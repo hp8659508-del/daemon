@@ -37,6 +37,8 @@ revoke all on public.team_secrets from authenticated, anon;
 
 -- Seed the known starting passwords (USERNAME_123; S⁴ uses S_123456). Teams that
 -- already changed their password are marked unknown until they change it again.
+alter table public.teams add column if not exists password_changed_at timestamptz;
+
 insert into public.team_secrets (team_id, password, source)
 select id,
        case when password_changed_at is not null then null
