@@ -139,7 +139,10 @@ export async function POST(request: Request) {
         const { data: profs } = await db.from("profiles").select("id").in("team_id", teamIds);
         // children first: anything that may not cascade
         await db.from("team_powerups").update({ target_team_id: null }).in("target_team_id", teamIds);
-        for (const t of ["team_powerups", "team_bingo", "team_stages", "purchases", "transactions", "activity_log", "team_members", "team_secrets", "help_requests"]) await db.from(t).delete().in("team_id", teamIds);
+        for (const t of ["team_powerups", "team_bingo", "team_stages", "purchases", "transactions", "activity_log", "team_members", "team_secrets", "help_requests", "team_spins", "manual_spin_records"]) {
+          const { error } = await db.from(t).delete().in("team_id", teamIds);
+          if (error && !/does not exist|schema cache/i.test(error.message)) throw new Error(`Could not clear ${t}: ${error.message}`);
+        }
         await db.from("profiles").delete().in("team_id", teamIds);
         for (const p of profs ?? []) await db.auth.admin.deleteUser(p.id);
         fail((await db.from("teams").delete().in("id", teamIds)).error);
@@ -296,8 +299,10 @@ export async function POST(request: Request) {
         const { data: target } = await db.from("profiles").select("venue").eq("id", id).maybeSingle();
         if (!target?.venue && (count ?? 0) <= 1) throw new Error("Keep at least one host.");
         await db.from("profiles").delete().eq("id", id);
-        await db.auth.admin.deleteUser(id);
-        return NextResponse.json({ ok: true, message: "Organiser removed" });
+        // If the auth user can't be deleted (older DB with strict links), block the login instead.
+        const { error: delErr } = await db.auth.admin.deleteUser(id);
+        if (delErr) await db.auth.admin.updateUserById(id, { ban_duration: "876000h" });
+        return NextResponse.json({ ok: true, message: delErr ? "Organiser access removed (login disabled)" : "Organiser removed" });
       }
 
       /* ---------------- stage control ---------------- */
@@ -461,9 +466,14 @@ export async function POST(request: Request) {
 
       /* ---------------- bingo ---------------- */
       case "bingo_toggle": {
-        const { data, error } = await db.rpc("admin_toggle_bingo", { p_team_id: str(body.team_id), p_idx: int(body.idx, 0, 24), p_admin: user.id });
-        fail(error);
-        return NextResponse.json({ ok: true, message: data?.marked ? `Dare cleared · ${data.lines} line(s)` : "Square un-marked", data });
+        const args = { p_team_id: str(body.team_id), p_idx: int(body.idx, 0, 24), p_admin: user.id };
+        // Prefer the explicit stamp/unstamp (ui_v6) so two volunteers can't undo each other.
+        let res = typeof body.on === "boolean" ? await db.rpc("admin_set_bingo", { ...args, p_on: body.on }) : null;
+        if (!res || (res.error && /Could not find the function|admin_set_bingo.*does not exist/i.test(res.error.message))) res = await db.rpc("admin_toggle_bingo", args);
+        fail(res.error);
+        const data = res.data as { marked?: boolean; noop?: boolean; columns?: number; full?: boolean } | null;
+        if (data?.noop) return NextResponse.json({ ok: true, message: data.marked ? "Already stamped" : "Already cleared", data });
+        return NextResponse.json({ ok: true, message: data?.marked ? `Dare stamped${data.full ? " · FULL CARD!" : data.columns ? ` · ${data.columns}/5 letters` : ""}` : "Stamp removed", data });
       }
       case "cell_save": {
         fail((await db.from("bingo_cells").update({ label: str(body.label, 120), points: int(body.points, -10000, 10000) }).eq("idx", int(body.idx, 0, 24))).error);

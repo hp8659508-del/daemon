@@ -49,7 +49,7 @@ export function fmtTime(iso: string | null) {
 export function fmtMins(m: number) { return `${m > 0 ? "+" : m < 0 ? "−" : "±"}${Math.abs(m)} min`; }
 
 /* ---------- Realtime + polling refresh so screens follow the admin instantly ---------- */
-export function LiveSync({ tables, every = 12000, jitter = 0 }: { tables: string[]; every?: number; jitter?: number }) {
+export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables: string[]; every?: number; jitter?: number; teamId?: string }) {
   const router = useRouter();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<"live" | "polling">("polling");
@@ -58,16 +58,29 @@ export function LiveSync({ tables, every = 12000, jitter = 0 }: { tables: string
     // jitter spreads 40 screens' refreshes over a short window instead of one spike
     pending.current = setTimeout(() => { pending.current = null; router.refresh(); }, 350 + Math.random() * jitter);
   }, [router, jitter]);
+  const liveRef = useRef(false);
   useEffect(() => {
     const supabase = createClient();
-    const ch = supabase.channel("daemon-live");
-    tables.forEach(t => ch.on("postgres_changes" as never, { event: "*", schema: "public", table: t } as never, bump as never));
-    ch.subscribe(status => setState(status === "SUBSCRIBED" ? "live" : "polling"));
-    const poll = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, every);
+    const ch = supabase.channel(`daemon-live-${teamId ?? "staff"}-${Math.random().toString(36).slice(2, 8)}`);
+    // Team screens only listen to their own rows; global tables stay unfiltered.
+    const GLOBAL = new Set(["event_settings", "auction_items", "powerups", "bingo_cells"]);
+    tables.forEach(t => {
+      const cfg: Record<string, string> = { event: "*", schema: "public", table: t };
+      if (teamId && !GLOBAL.has(t)) cfg.filter = `team_id=eq.${teamId}`;
+      ch.on("postgres_changes" as never, cfg as never, bump as never);
+    });
+    ch.subscribe(status => { const ok = status === "SUBSCRIBED"; liveRef.current = ok; setState(ok ? "live" : "polling"); });
+    // Safety net: poll slowly while realtime is healthy, faster if it drops.
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (document.visibilityState === "visible") router.refresh();
+      timer = setTimeout(tick, (liveRef.current ? Math.max(every * 4, 45000) : every) + Math.random() * jitter);
+    };
+    timer = setTimeout(tick, every + Math.random() * jitter);
     const onFocus = () => router.refresh();
     window.addEventListener("focus", onFocus);
-    return () => { supabase.removeChannel(ch); clearInterval(poll); window.removeEventListener("focus", onFocus); };
-  }, [tables.join(","), every, bump, router]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { supabase.removeChannel(ch); clearTimeout(timer); window.removeEventListener("focus", onFocus); };
+  }, [tables.join(","), every, bump, router, jitter, teamId]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <span className="chip" title={state === "live" ? "Realtime connected" : "Refreshing every few seconds"}>
       <span className={`led ${state === "live" ? "led-live" : "led-upcoming"}`} />

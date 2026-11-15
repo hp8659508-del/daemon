@@ -66,28 +66,44 @@ async function allTransactions(db: ReturnType<typeof createAdminClient>) {
 }
 
 /** One round-trip snapshot of the whole event. Server-only (service role); callers must authorise first. */
-export async function loadWorld() {
+/**
+ * Load the event. With { teamId } only that team's private rows are fetched
+ * (team screens refresh often, so they must stay light); balances for every
+ * team come from one aggregate call either way.
+ */
+export async function loadWorld(opts: { teamId?: string } = {}) {
   const db = createAdminClient();
-  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help] = await Promise.all([
+  const tid = opts.teamId;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
+  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal] = await Promise.all([
     db.from("teams").select("id,team_name,username,bay,paddle").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
-    db.from("team_stages").select("*"),
+    own(db.from("team_stages").select("*")),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active").order("item_name"),
     db.from("powerups").select("*").order("created_at"),
-    db.from("team_powerups").select("*").order("created_at", { ascending: false }),
+    tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
+        : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
     db.from("purchases").select("id,team_id,item_id,purchase_price,created_at").order("created_at", { ascending: false }),
-    allTransactions(db),
+    tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(300) : allTransactions(db),
     db.from("bingo_cells").select("*").order("idx"),
-    db.from("team_bingo").select("team_id,idx,marked_at"),
+    own(db.from("team_bingo").select("team_id,idx,marked_at")),
     db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
-    db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at").order("created_at", { ascending: false }).limit(1000),
-    db.from("team_members").select("id,team_id,role,full_name,usn,department,year,phone,email,college,checked_in").order("role").order("created_at"),
-    db.from("help_requests").select("id,team_id,message,status,created_at").eq("status", "open").order("created_at"),
+    own(db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at")).order("created_at", { ascending: false }).limit(tid ? 300 : 1000),
+    own(db.from("team_members").select("id,team_id,role,full_name,usn,department,year,phone,email,college,checked_in")).order("role").order("created_at"),
+    own(db.from("help_requests").select("id,team_id,message,status,created_at")).eq("status", "open").order("created_at"),
+    db.rpc("team_balances"),
   ]);
   const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help].find(r => r.error)?.error;
-  if (firstError) throw new Error(firstError.message + " — have supabase/ui_rebuild_migration.sql and ui_v2_migration.sql been run?");
+  if (firstError) throw new Error(firstError.message + " — run every SQL file in supabase/ in order (ui_rebuild → ui_v2 … ui_v6)");
 
   const balances: Record<string, number> = {};
-  for (const t of (txs.data ?? []) as Tx[]) balances[t.team_id] = (balances[t.team_id] ?? 0) + Number(t.points ?? 0);
+  if (!bal.error && Array.isArray(bal.data)) {
+    for (const r of bal.data as { team_id: string; balance: number }[]) balances[r.team_id] = Number(r.balance);
+  } else {
+    // ui_v6 not run yet: fall back to summing the ledger ourselves
+    const all = tid ? await allTransactions(db) : txs;
+    for (const t of (all.data ?? []) as Tx[]) balances[t.team_id] = (balances[t.team_id] ?? 0) + Number(t.points ?? 0);
+  }
 
   return {
     teams: (teams.data ?? []) as Team[],
