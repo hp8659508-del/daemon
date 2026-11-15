@@ -32,7 +32,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               <Link href="/dashboard/control" className="key key-sm"><Gauge size={14} /> Control</Link>
             </>}
             <Link href="/account/change-password" className="key key-sm" title="Change password"><KeyRound size={14} /></Link>
-            <form action={signOut}><button className="key key-sm" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button></form>
+            <form action="/api/auth/signout" method="POST"><button type="submit" className="key key-sm" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button></form>
           </nav>
         </div>
         <div className="h-[3px] w-full" style={{ background: "var(--prism)" }} />
