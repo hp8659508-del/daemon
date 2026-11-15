@@ -518,6 +518,18 @@ function Points({ w, cmd, paddle }: Ctx) {
           <div className="mt-3 grid grid-cols-4 gap-2">{[-100, -50, 50, 100, 200, 250, 500, 1000].map(n => <button key={n} className="key key-sm num" data-on={String(n) === amount} onClick={() => setAmount(String(n))}>{n > 0 ? "+" : ""}{n}</button>)}</div>
           <div className="mt-3 grid grid-cols-[120px_1fr] gap-2"><input className="field num" type="number" value={amount} onChange={e => setAmount(e.target.value)} /><input className="field" placeholder="Reason (shown to teams)" value={reason} onChange={e => setReason(e.target.value)} /></div>
           <button className="key-primary mt-3 w-full" disabled={!sel.size || !Number(amount) || cmd.busy} onClick={go}><Coins size={16} /> Apply</button>
+          {sel.size > 0 && (
+            <div className="mt-3 flex gap-2 border-t border-graphite/20 pt-3">
+              <button className="key key-sm flex-1 text-xs" disabled={cmd.busy} onClick={() => {
+                const pin = window.prompt(`Reset points to 0 for ${sel.size} team(s)? Enter PIN:`, "123");
+                if (pin) cmd.run({ action: "reset", pin, parts: ["points"], team_ids: [...sel] });
+              }}>Reset to 0 pts</button>
+              <button className="key key-sm flex-1 text-xs" disabled={cmd.busy} onClick={() => {
+                const pin = window.prompt(`Reset to starting points for ${sel.size} team(s)? Enter PIN:`, "123");
+                if (pin) cmd.run({ action: "reset", pin, parts: ["points", "starting_points"], team_ids: [...sel] });
+              }}>Reset to starting pts</button>
+            </div>
+          )}
         </div>
         <div className="panel p-4">
           <h3 className="font-display mb-2 font-bold">Recent ledger</h3>
