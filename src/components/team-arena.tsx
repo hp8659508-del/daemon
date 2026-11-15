@@ -336,7 +336,7 @@ function Loadout({ v }: { v: TeamView }) {
 /* ---------------- History: everything granted or removed ---------------- */
 export function HistoryFeed({ items, teamName }: { items: TeamView["activity"]; teamName?: (id: string | null) => string }) {
   const [kind, setKind] = useState("all");
-  const kinds = ["all", "points", "powerup", "auction", "bingo", "round"];
+  const kinds = ["all", "points", "powerup", "auction", "bingo", "round", "team"];
   const list = items.filter(i => {
     if (kind === "all") return true;
     if (kind === "points") return i.kind === "points" || (i.points != null && i.points !== 0);

@@ -127,6 +127,7 @@ export async function POST(request: Request) {
         const { error } = await db.auth.admin.updateUserById(prof.id, { password });
         fail(error);
         await db.from("profiles").update({ must_change_password: false }).eq("id", prof.id);
+        try { await (db.from("teams") as any).update({ password_changed_at: null }).eq("id", id); } catch {}
         await log({ team_id: id, kind: "team", action: "password", label: "Password reset by organiser" });
         return NextResponse.json({ ok: true, message: `Password set to ${password}` });
       }

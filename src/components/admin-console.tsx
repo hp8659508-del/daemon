@@ -654,16 +654,49 @@ function EventPanel({ w, cmd, staff, vkey, scope }: Ctx) {
 function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
+  const [pwFilter, setPwFilter] = useState<"all" | "default" | "changed">("all");
   const [nf, setNf] = useState({ team_name: "", bay: staff.venue ?? (scope && scope !== UNASSIGNED ? scope : ""), password: "" });
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [del, setDel] = useState<string[] | null>(null);
   const [confirmTxt, setConfirmTxt] = useState("");
-  const list = w.teams.filter(t => !q || t.team_name.toLowerCase().includes(q.toLowerCase()) || t.username.toLowerCase().includes(q.toLowerCase()) || String(paddle[t.id]) === q.trim());
+
+  const getPwStatus = (teamId: string) => {
+    const logs = w.activity.filter(a => a.team_id === teamId && (a.action === "password_changed" || a.action === "password" || a.action === "password_reset"));
+    if (logs.length > 0 && logs[0].action === "password_changed") {
+      return { changed: true, at: logs[0].created_at };
+    }
+    return { changed: false, at: null };
+  };
+
+  const changedCount = w.teams.filter(t => getPwStatus(t.id).changed).length;
+  const defaultCount = w.teams.length - changedCount;
+
+  const list = w.teams.filter(t => {
+    if (q && !(t.team_name.toLowerCase().includes(q.toLowerCase()) || t.username.toLowerCase().includes(q.toLowerCase()) || String(paddle[t.id]) === q.trim())) {
+      return false;
+    }
+    if (pwFilter === "changed") return getPwStatus(t.id).changed;
+    if (pwFilter === "default") return !getPwStatus(t.id).changed;
+    return true;
+  });
+
   const toggle = (id: string) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
   const name = (id: string) => full.teams.find(t => t.id === id)?.team_name ?? "?";
   const exportCsv = () => {
-    const rows = [["Paddle", "Team", "Username", "Venue", "Points", "Auction", "Spin", "Bingo", "Lots won", "Bingo squares"]];
-    w.teams.forEach(t => rows.push([String(paddle[t.id]), t.team_name, t.username, t.bay ?? "", String(w.balances[t.id] ?? 0), stageOf(t.id, "auction"), stageOf(t.id, "spin"), stageOf(t.id, "bingo"), String(w.purchases.filter(p => p.team_id === t.id).length), String(w.marks.filter(m => m.team_id === t.id).length)]));
+    const rows = [["Paddle", "Team", "Username", "Password Status", "Venue", "Points", "Auction", "Spin", "Bingo", "Lots won", "Bingo squares"]];
+    w.teams.forEach(t => rows.push([
+      String(paddle[t.id]),
+      t.team_name,
+      t.username,
+      getPwStatus(t.id).changed ? "Changed" : "Default",
+      t.bay ?? "",
+      String(w.balances[t.id] ?? 0),
+      stageOf(t.id, "auction"),
+      stageOf(t.id, "spin"),
+      stageOf(t.id, "bingo"),
+      String(w.purchases.filter(p => p.team_id === t.id).length),
+      String(w.marks.filter(m => m.team_id === t.id).length)
+    ]));
     const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `daemon-hour-teams-${new Date().toISOString().slice(0, 16)}.csv`; a.click();
   };
@@ -672,6 +705,11 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
       <div className="panel overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-graphite p-4">
           <div className="relative min-w-[200px] flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" /><input className="field pl-9" placeholder="Search team, username or paddle" value={q} onChange={e => setQ(e.target.value)} /></div>
+          <div className="flex items-center gap-1">
+            <button className="key key-sm" data-on={pwFilter === "all"} onClick={() => setPwFilter("all")}>All ({w.teams.length})</button>
+            <button className="key key-sm" data-on={pwFilter === "default"} onClick={() => setPwFilter("default")} title="Teams still using default password">Default ({defaultCount})</button>
+            <button className="key key-sm" data-on={pwFilter === "changed"} onClick={() => setPwFilter("changed")} title="Teams who have changed their password">Changed ({changedCount})</button>
+          </div>
           <button className="key key-sm" onClick={() => setSel(new Set(list.map(t => t.id)))}><CheckSquare size={12} /> Select all</button>
           <button className="key key-sm" disabled={!sel.size} onClick={() => setSel(new Set())}><XCircle size={12} /> Clear</button>
           <button className="key key-sm" onClick={exportCsv}>Export CSV</button>
@@ -687,9 +725,11 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
         <div className="max-h-[640px] overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-white text-left text-[10px] uppercase tracking-[.16em] text-muted"><tr className="border-b border-graphite">
-              <th className="w-8 p-3" /><th className="p-3">#</th><th className="p-3">Team</th><th className="p-3">Login</th><th className="p-3">Venue</th><th className="p-3 text-right">Pts</th><th className="p-3">Rounds</th><th className="p-3" />
+              <th className="w-8 p-3" /><th className="p-3">#</th><th className="p-3">Team</th><th className="p-3">Login</th><th className="p-3">Password</th><th className="p-3">Venue</th><th className="p-3 text-right">Pts</th><th className="p-3">Rounds</th><th className="p-3" />
             </tr></thead>
-            <tbody>{list.map(t => (
+            <tbody>{list.map(t => {
+              const pw = getPwStatus(t.id);
+              return (
               <tr key={t.id} className={`table-row ${sel.has(t.id) ? "bg-frost/60" : ""}`}>
                 <td className="p-3"><input type="checkbox" checked={sel.has(t.id)} onChange={() => toggle(t.id)} /></td>
                 <td className="num p-3 text-faint">{String(paddle[t.id]).padStart(2, "0")}</td>
@@ -698,6 +738,17 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                     <input autoFocus className="field !py-1" value={renaming.name} onChange={e => setRenaming({ id: t.id, name: e.target.value })} /><button className="key key-sm">Save</button><button type="button" className="key key-sm" onClick={() => setRenaming(null)}>×</button></form>
                 ) : <button className="text-left hover:underline" title="Rename" onClick={() => setRenaming({ id: t.id, name: t.team_name })}>{t.team_name}</button>}</td>
                 <td className="num p-3 text-xs">{t.username}</td>
+                <td className="p-3">
+                  {pw.changed ? (
+                    <span className="chip border-ok/40 bg-ok/10 text-ok font-semibold inline-flex items-center gap-1" title={pw.at ? `Changed ${fmtTime(pw.at)}` : "Changed"}>
+                      <Check size={11} /> Changed
+                    </span>
+                  ) : (
+                    <span className="chip border-graphite text-faint inline-flex items-center gap-1" title={`Default: ${t.username}_123`}>
+                      Default
+                    </span>
+                  )}
+                </td>
                 <td className="p-3">{staff.isHost ? (
                   <select className="border border-graphite bg-white px-1.5 py-1 text-xs" value={t.bay ?? ""} onChange={e => cmd.run({ action: "team_move", team_ids: [t.id], bay: e.target.value || null })}>
                     <option value="">Unassigned</option>{VENUES.map(v => <option key={v}>{v}</option>)}</select>) : <span className="text-xs">{t.bay}</span>}</td>
@@ -707,7 +758,8 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                   <button className="key key-sm" title="Reset password" onClick={() => { const pw = window.prompt(`New password for ${t.team_name} (min 6 chars). Leave blank for ${t.username}_123`, ""); if (pw !== null) cmd.run({ action: "team_password", team_id: t.id, password: pw }); }}><KeyRound size={12} /></button>
                   {staff.isHost && <button className="key key-sm" title="Delete team" onClick={() => { setDel([t.id]); setConfirmTxt(""); }}><Trash2 size={12} /></button>}
                 </div></td>
-              </tr>))}</tbody>
+              </tr>);
+            })}</tbody>
           </table>
           {list.length === 0 && <div className="p-5"><Empty title="No teams here">Change the venue filter above or add a team.</Empty></div>}
         </div>

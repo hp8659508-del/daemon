@@ -58,6 +58,12 @@ export async function POST(request: Request) {
       }
     );
 
+    const { data: profile } = await adminClient
+      .from("profiles")
+      .select("id, team_id, role")
+      .eq("id", user.id)
+      .maybeSingle();
+
     const { error: profileError } = await adminClient
       .from("profiles")
       .update({ must_change_password: false })
@@ -65,6 +71,21 @@ export async function POST(request: Request) {
 
     if (profileError) {
       throw profileError;
+    }
+
+    if (profile?.team_id) {
+      // Record password change event in activity_log for admin awareness
+      await adminClient.from("activity_log").insert({
+        team_id: profile.team_id,
+        kind: "team",
+        action: "password_changed",
+        label: "Password changed by team lead",
+        actor: user.id
+      });
+
+      try {
+        await (adminClient.from("teams") as any).update({ password_changed_at: new Date().toISOString() }).eq("id", profile.team_id);
+      } catch {}
     }
 
     return NextResponse.json({ success: true });
