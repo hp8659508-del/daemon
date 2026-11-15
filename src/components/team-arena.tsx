@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
+import { onLotFeed, type LotFeed } from "@/lib/realtime";
 import MemberTiles from "@/components/member-tiles";
 import { COLUMNS } from "@/lib/bingo-shared";
 import { Hourglass, LiveSync, useNow, fmtClock, fmtTime, fmtMins, StatusLed, Empty } from "@/components/ui";
@@ -74,7 +75,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
 
       <div className="flex items-center justify-between text-xs text-muted">
         <span>Points and power-ups are set by the organisers. Your screen updates by itself.</span>
-        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log", "team_members", "help_requests"]} every={15000} jitter={1500} teamId={v.team?.id} />
+        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log", "team_members", "help_requests"]} every={6000} jitter={1500} teamId={v.team?.id} />
       </div>
     </div>
   );
@@ -188,47 +189,40 @@ function Stage({ v, a, children }: { v: TeamView; a: Activity; children: React.R
 function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
   const live = v.stages.auction.status === "live";
   const spent = v.purchases.reduce((a, p) => a + p.purchase_price, 0);
-  const lot = v.liveLot;
-  const prevPrice = useRef(lot?.price);
+  // Live price: websocket feed from the auctioneer wins over the (slower) server copy.
+  const [feed, setFeed] = useState<LotFeed | null>(null);
+  useEffect(() => onLotFeed(l => { if (l.venue === v.venueKey || l.venue === "all") setFeed(l); }), [v.venueKey]);
+  const lotItemId = feed ? feed.item_id : v.liveLot?.item_id ?? null;
+  const price = feed ? feed.price : v.liveLot?.price ?? 0;
+  const item = lotItemId ? v.catalogue.find(i => i.id === lotItemId) ?? null : null;
+  const prevPrice = useRef(price);
   const [flash, setFlash] = useState(false);
-  useEffect(() => { if (lot && prevPrice.current !== lot.price) { setFlash(true); setTimeout(() => setFlash(false), 900); } prevPrice.current = lot?.price; }, [lot?.price, lot]);
-  const canAfford = lot ? v.balance >= lot.price : false;
+  useEffect(() => { if (prevPrice.current !== price) { setFlash(true); const t = setTimeout(() => setFlash(false), 600); prevPrice.current = price; return () => clearTimeout(t); } }, [price]);
+  const canAfford = v.balance >= price;
   return (
     <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
       <div className="space-y-5">
         {live && (
           <div className="panel foil p-6">
-            <div className="flex items-center justify-between"><p className="eyebrow">On the block</p><span className="chip"><span className="led led-live" /> live lot</span></div>
-            {lot?.item ? (
+            <div className="flex items-center justify-between"><p className="eyebrow">On the block</p><span className="chip"><span className="led led-live" /> live</span></div>
+            {item ? (
               <div className="mt-4 grid gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
                 <div>
-                  <h3 className="font-display text-3xl font-black">{lot.item.item_name}</h3>
-                  {lot.item.description && <p className="mt-1 text-sm text-muted">{lot.item.description}</p>}
-                  <p className="mt-3 text-xs text-muted">Range <span className="num">{lot.item.min_price ?? 0}–{lot.item.max_price ?? "∞"}</span> · {Math.max(0, lot.item.quantity - lot.sold)} of {lot.item.quantity} left</p>
+                  <h3 className="font-display text-3xl">{item.item_name}</h3>
+                  {item.description && <p className="mt-1 text-sm text-muted">{item.description}</p>}
+                  {item.powerup && <p className="mt-2"><span className="chip"><Sparkles size={10} /> {item.powerup}{item.powerupMinutes ? ` · ${fmtMins(item.powerupMinutes)}` : ""}</span></p>}
+                  <p className="mt-3 text-xs text-muted">Range <span className="num">{item.min_price ?? 0}–{item.max_price ?? "∞"}</span> · {Math.max(0, item.quantity - item.sold)} of {item.quantity} left</p>
                 </div>
-                <div className={`lcd px-6 py-4 text-right ${flash ? "animate-flash" : ""}`}>
+                <div className={`lcd px-6 py-4 text-right transition-colors ${flash ? "animate-flash" : ""}`}>
                   <p className="text-[10px] font-bold uppercase tracking-[.2em] opacity-70">Current price</p>
-                  <p className="text-5xl font-bold">{lot.price.toLocaleString("en-IN")}</p>
-                  <p className={`mt-1 text-xs font-semibold ${canAfford ? "text-ok" : "text-err"}`}>{canAfford ? "You can afford this" : `You're ${lot.price - v.balance} short`}</p>
+                  <p className="text-5xl font-bold tabular-nums">{price.toLocaleString("en-IN")}</p>
+                  <p className={`mt-1 text-xs font-semibold ${canAfford ? "text-ok" : "text-err"}`}>{canAfford ? "You can afford this" : `You're ${price - v.balance} short`}</p>
                 </div>
               </div>
             ) : <p className="mt-4 text-sm text-muted">The auctioneer is setting up the next lot…</p>}
           </div>
         )}
-        <div className="panel overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4"><h3 className="font-display font-bold">Lot catalogue</h3><span className="text-xs text-muted">{v.catalogue.length} lots</span></div>
-          {v.catalogue.length === 0 ? <div className="p-5"><Empty title="No lots announced yet" /></div> :
-            v.catalogue.map(i => (
-              <div key={i.id} className={`table-row flex items-center gap-4 px-5 py-3 ${lot?.item_id === i.id ? "bg-cobalt-wash" : ""}`}>
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{i.item_name} {i.powerup && <span className="chip ml-1"><Sparkles size={10} /> {i.powerup}</span>}</p>
-                  {i.description && <p className="truncate text-xs text-muted">{i.description}</p>}
-                </div>
-                <span className="num text-xs text-muted">{i.min_price ?? i.base_points}–{i.max_price ?? "∞"}</span>
-                <span className={`chip ${i.sold >= i.quantity ? "text-faint" : ""}`}>{i.sold >= i.quantity ? "SOLD OUT" : `${i.quantity - i.sold} left`}</span>
-              </div>
-            ))}
-        </div>
+        <LotCatalogue v={v} onBlock={lotItemId} />
       </div>
       <div className="space-y-5">
         <div className="panel grid place-items-center p-6 text-center">
@@ -413,6 +407,49 @@ function HelpButton({ open }: { open: boolean }) {
       {sent
         ? <button className="key-primary key-lg" disabled={busy} onClick={() => send(true)} title="Tap to cancel"><LifeBuoy size={18} className="animate-spin [animation-duration:3s]" /> Help is on the way</button>
         : <button className="key key-lg" disabled={busy} onClick={() => send()}><LifeBuoy size={18} /> Need help</button>}
+    </div>
+  );
+}
+
+/* ---------------- Lot catalogue: one clear row per lot ---------------- */
+function LotCatalogue({ v, onBlock }: { v: TeamView; onBlock: string | null }) {
+  const status = (i: TeamView["catalogue"][number]) =>
+    i.id === onBlock ? { label: "On the block", cls: "bg-graphite text-white" }
+    : i.mine > 0 ? { label: "Yours", cls: "bg-ok text-white" }
+    : i.sold >= i.quantity ? { label: "Sold out", cls: "bg-frost text-faint" }
+    : { label: "Available", cls: "bg-white" };
+  return (
+    <div className="panel overflow-hidden">
+      <div className="flex items-center justify-between border-b border-graphite px-5 py-4">
+        <h3 className="font-display">Lot catalogue</h3>
+        <span className="num text-xs text-muted">{v.catalogue.filter(i => i.sold < i.quantity).length} of {v.catalogue.length} available</span>
+      </div>
+      {v.catalogue.length === 0 ? <div className="p-5"><Empty title="No lots announced yet" /></div> : (
+        <>
+          {/* header (desktop) */}
+          <div className="hidden grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1.2fr)_110px_70px_118px] gap-3 border-b border-silver/30 bg-frost/50 px-5 py-2 text-[10px] font-bold uppercase tracking-[.16em] text-muted md:grid">
+            <span>#</span><span>Lot</span><span>Gives you</span><span className="text-right">Price range</span><span className="text-right">Left</span><span className="text-right">Status</span>
+          </div>
+          {v.catalogue.map((i, n) => {
+            const st = status(i);
+            return (
+              <div key={i.id} className={`table-row grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 md:grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1.2fr)_110px_70px_118px] ${i.id === onBlock ? "bg-cobalt-wash" : ""} ${i.sold >= i.quantity && i.mine === 0 ? "opacity-60" : ""}`}>
+                <span className="num text-xs text-faint">{String(n + 1).padStart(2, "0")}</span>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{i.item_name}</p>
+                  {i.description && <p className="truncate text-xs text-muted">{i.description}</p>}
+                </div>
+                <span className={`justify-self-end border border-graphite px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider md:order-last ${st.cls}`}>{st.label}</span>
+                <div className="col-start-2 min-w-0 text-xs md:col-start-auto">
+                  {i.powerup ? <span className="inline-flex items-center gap-1 font-semibold"><Sparkles size={11} />{i.powerup}{i.powerupMinutes ? <span className={`num ${i.powerupMinutes > 0 ? "text-ok" : "text-err"}`}> {fmtMins(i.powerupMinutes)}</span> : null}{i.powerupRival && <span className="text-ember"> · rival</span>}</span> : <span className="text-faint">—</span>}
+                </div>
+                <span className="num col-start-2 text-xs text-muted md:col-start-auto md:text-right">{i.min_price ?? i.base_points}–{i.max_price ?? "∞"} pts</span>
+                <span className="num hidden text-right text-xs md:block">{Math.max(0, i.quantity - i.sold)}/{i.quantity}</span>
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }

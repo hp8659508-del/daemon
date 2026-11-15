@@ -161,7 +161,12 @@ export function teamSlice(w: World, teamId: string) {
     lineBonus: w.settings.bingo_line_bonus,
     broadcast: [w.settings.broadcasts?.all, team?.bay ? w.settings.broadcasts?.[team.bay] : null, w.settings.broadcast].filter(Boolean).join("   ◆   ") || null,
     liveLot: lotVisible && lot ? { ...lot, item: w.items.find(i => i.id === lot.item_id) ?? null, sold: w.purchases.filter(p => p.item_id === lot.item_id).length } : null,
-    catalogue: w.items.filter(i => i.is_active).map(i => ({ ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, powerup: w.powerups.find(p => p.id === i.powerup_id)?.name ?? null })),
+    catalogue: w.items.filter(i => i.is_active).map(i => {
+      const pu = w.powerups.find(p => p.id === i.powerup_id);
+      return { ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, mine: w.purchases.filter(p => p.item_id === i.id && p.team_id === teamId).length,
+        powerup: pu?.name ?? null, powerupMinutes: pu?.minutes_delta ?? null, powerupRival: pu?.targets_rival ?? false };
+    }),
+    venueKey: team?.bay || "all",
     rank: w.settings.leaderboard_visible ? ranked.findIndex(t => t.id === teamId) + 1 : 0,
     teamCount: w.teams.length,
     leaderboard: w.settings.leaderboard_visible ? ranked.slice(0, 5).map(t => ({ id: t.id, name: t.team_name, points: w.balances[t.id] ?? 0 })) : null,

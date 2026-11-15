@@ -8,6 +8,7 @@ import BingoBoard from "@/components/bingo-board";
 import MemberTiles from "@/components/member-tiles";
 import { HistoryFeed } from "@/components/team-arena";
 import { LETTERS } from "@/lib/bingo-shared";
+import { sendLotFeed } from "@/lib/realtime";
 import { VENUES, UNASSIGNED, scopeWorld, venueKey, venueLabel } from "@/lib/venues";
 
 type Tab = "stages" | "auction" | "spin" | "bingo" | "points" | "powerups" | "history" | "teams" | "event" | "staff";
@@ -238,9 +239,14 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
   // Push the lot + price to team screens (debounced)
   const pushT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTeams = w.teams.filter(t => stageOf(t.id, "auction") === "live").map(t => t.id);
+  // 1) instant: websocket feed to every screen in this venue (~100 ms)
+  // 2) durable: quiet DB save 250 ms after the last change (for screens that load later)
+  const persistLot = (lot: { item_id: string; price: number } | null) =>
+    fetch("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "live_lot", venue: vkey === "all" ? "" : vkey, lot }) }).catch(() => null);
   const broadcast = (id: string, p: number) => {
+    sendLotFeed({ venue: vkey, item_id: id, price: p });
     if (pushT.current) clearTimeout(pushT.current);
-    pushT.current = setTimeout(() => cmd.run({ action: "live_lot", venue: vkey === "all" ? "" : vkey, lot: { item_id: id, price: p } }, { quiet: true }), 400);
+    pushT.current = setTimeout(() => persistLot({ item_id: id, price: p }), 250);
   };
   const choose = (id: string) => { const it = items.find(i => i.id === id); setItemId(id); const p = it?.min_price ?? it?.base_points ?? 0; setPrice(p); setTeam(""); broadcast(id, p); };
   const bump = (d: number) => { const p = clamp(price + d); setPrice(p); if (item) broadcast(item.id, p); };
@@ -292,7 +298,7 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
             <div className="well flex-1 px-4 py-3 text-sm">{team ? <>Winner <b>#{paddle[team]} {name(team)}</b> · balance <span className={`num font-bold ${bal >= price ? "text-ok" : "text-err"}`}>{bal}</span></> : <span className="text-muted">Select the winning paddle →</span>}</div>
             <button className="key-primary key-lg" disabled={!team || cmd.busy || bal < price || soldOf(item.id) >= item.quantity} onClick={sell}><Hammer size={18} /> Sold</button>
           </div>
-          <button className="key key-sm mt-3" onClick={() => cmd.run({ action: "live_lot", venue: vkey === "all" ? "" : vkey, lot: null })}>Clear lot from {venueLabel(scope)} screens</button>
+          <button className="key key-sm mt-3" onClick={() => { sendLotFeed({ venue: vkey, item_id: null, price: 0 }); if (pushT.current) clearTimeout(pushT.current); persistLot(null); cmd.toast("Lot cleared from screens"); }}>Clear lot from {venueLabel(scope)} screens</button>
         </>}
       </div>
 
@@ -361,7 +367,9 @@ function Spin({ w, cmd, paddle, stageOf }: Ctx) {
       <div className="panel p-5">
         <h2 className="font-display mb-1 font-bold">1 · Who spun?</h2>
         <p className="mb-3 text-xs text-muted">{live.length} team(s) have the spin round live. A tick means the team already has a spin result.</p>
-        <TeamPicker w={w} paddle={paddle} value={team} onChange={setTeam} filter={live.length ? t => stageOf(t.id, "spin") === "live" : undefined} />
+        {live.length === 0
+          ? <Empty title="No team has Spin open">Open the Spin round for the teams at the wheel under <b>Rounds</b>. Only those teams can receive spin results.</Empty>
+          : <TeamPicker w={w} paddle={paddle} value={team} onChange={setTeam} filter={t => stageOf(t.id, "spin") === "live"} />}
         <div className="mt-3 flex flex-wrap gap-1">{live.map(t => <span key={t.id} className="chip">{done.has(t.id) && <Check size={10} className="text-ok" />}{t.team_name}</span>)}</div>
       </div>
       <div className="panel p-5">
@@ -419,8 +427,8 @@ function Bingo({ w, cmd, paddle, stageOf, staff }: Ctx) {
       <div className="space-y-5">
         <div className="panel p-4">
           <h2 className="font-display mb-3">Team</h2>
-          <TeamPicker w={w} paddle={paddle} value={team} onChange={t => { setTeam(t); setEdit(false); }} filter={t => stageOf(t.id, "bingo") !== "upcoming"} />
-          <p className="mt-3 text-[11px] text-faint">Only teams whose bingo round is live or closed are listed. Open it under Rounds first.</p>
+          <TeamPicker w={w} paddle={paddle} value={team} onChange={t => { setTeam(t); setEdit(false); }} filter={t => stageOf(t.id, "bingo") === "live"} />
+          <p className="mt-3 text-[11px] text-faint">Only teams whose bingo round is <b>live</b> can be stamped. Open it under Rounds first.</p>
         </div>
         {staff.isHost && <div className="panel p-4">
           <h3 className="font-display mb-2">Rewards & bonuses</h3>

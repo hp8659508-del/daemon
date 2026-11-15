@@ -43,6 +43,14 @@ export async function POST(request: Request) {
 
   try {
     const fail = (e: { message: string } | null) => { if (e) throw new Error(e.message); };
+    /** Round gate: a team can only be sold to / spun / stamped while that round is LIVE for it. */
+    const requireLive = async (teamId: string, activity: "auction" | "spin" | "bingo") => {
+      const { data: st } = await db.from("team_stages").select("status").eq("team_id", teamId).eq("activity", activity).maybeSingle();
+      if (st?.status !== "live") {
+        const { data: t } = await db.from("teams").select("team_name").eq("id", teamId).maybeSingle();
+        throw new Error(`${t?.team_name ?? "This team"}'s ${activity} round is ${st?.status ?? "not open"}. Open it under Rounds first.`);
+      }
+    };
 
     /* ---------- permission + venue scope, checked once for every action ---------- */
     const HOST_ONLY = ["clock", "bay", "staff_list", "staff_save", "staff_delete", "team_move", "powerup_save", "cell_save"];
@@ -432,6 +440,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, message: "Updated" });
       }
       case "sell": {
+        await requireLive(str(body.team_id), "auction");
         const { data, error } = await db.rpc("admin_sell_lot", { p_item_id: str(body.item_id), p_team_id: str(body.team_id), p_price: int(body.price, 0), p_admin: user.id });
         fail(error);
         const { data: it } = await db.from("auction_items").select("item_name").eq("id", body.item_id).maybeSingle();
@@ -467,6 +476,7 @@ export async function POST(request: Request) {
         if (target === teamId) throw new Error("A rival power-up cannot target its own team.");
         const minutes = body.minutes_delta === "" || body.minutes_delta == null ? pu.minutes_delta : int(body.minutes_delta, -600, 600);
         const source = ["spin", "auction", "bingo", "manual"].includes(body.source) ? body.source : "manual";
+        if (source === "spin") await requireLive(teamId, "spin");
         fail((await db.from("team_powerups").insert({ team_id: teamId, powerup_id: pu.id, name: pu.name, minutes_delta: minutes, target_team_id: target, source, note: body.note || null, created_by: user.id })).error);
         await log({ team_id: teamId, kind: "powerup", action: "granted", label: `${pu.name} (${source})`, minutes: target ? null : minutes });
         if (target) await log({ team_id: target, kind: "powerup", action: "granted", label: `${pu.name} played on you`, minutes });
@@ -488,6 +498,7 @@ export async function POST(request: Request) {
 
       /* ---------------- bingo ---------------- */
       case "bingo_toggle": {
+        await requireLive(str(body.team_id), "bingo");
         const args = { p_team_id: str(body.team_id), p_idx: int(body.idx, 0, 24), p_admin: user.id };
         // Prefer the explicit stamp/unstamp (ui_v6) so two volunteers can't undo each other.
         let res = typeof body.on === "boolean" ? await db.rpc("admin_set_bingo", { ...args, p_on: body.on }) : null;

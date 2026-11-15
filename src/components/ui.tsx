@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { onRefreshPulse, onHubReady, sendRefreshPulse } from "@/lib/realtime";
 
 /* ---------- Brass hourglass: the event's mascot, fill = time remaining ---------- */
 export function Hourglass({ fill = 0.6, size = 96, spinning = false }: { fill?: number; size?: number; spinning?: boolean }) {
@@ -59,6 +60,12 @@ export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables
     pending.current = setTimeout(() => { pending.current = null; router.refresh(); }, 350 + Math.random() * jitter);
   }, [router, jitter]);
   const liveRef = useRef(false);
+  // Instant path: the admin's refresh pulse arrives over the broadcast hub (~100 ms).
+  useEffect(() => onRefreshPulse(p => {
+    if (teamId && p?.teams && !p.teams.includes(teamId)) return;
+    setTimeout(() => router.refresh(), Math.random() * 250);
+  }), [router, teamId]);
+  useEffect(() => onHubReady(ok => { if (ok) { liveRef.current = true; setState("live"); } }), []);
   useEffect(() => {
     const supabase = createClient();
     const ch = supabase.channel(`daemon-live-${teamId ?? "staff"}-${Math.random().toString(36).slice(2, 8)}`);
@@ -69,12 +76,13 @@ export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables
       if (teamId && !GLOBAL.has(t)) cfg.filter = `team_id=eq.${teamId}`;
       ch.on("postgres_changes" as never, cfg as never, bump as never);
     });
-    ch.subscribe(status => { const ok = status === "SUBSCRIBED"; liveRef.current = ok; setState(ok ? "live" : "polling"); });
+    ch.subscribe(status => { const ok = status === "SUBSCRIBED"; liveRef.current = ok || liveRef.current; setState(ok ? "live" : liveRef.current ? "live" : "polling"); });
     // Safety net: poll slowly while realtime is healthy, faster if it drops.
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => {
       if (document.visibilityState === "visible") router.refresh();
-      timer = setTimeout(tick, (liveRef.current ? Math.max(every * 4, 45000) : every) + Math.random() * jitter);
+      // Safety net only: realtime + pulses do the real work. 20 s when healthy, `every` (≈6 s) if not.
+      timer = setTimeout(tick, (liveRef.current ? Math.max(every * 2, 20000) : every) + Math.random() * jitter);
     };
     timer = setTimeout(tick, every + Math.random() * jitter);
     const onFocus = () => router.refresh();
@@ -108,6 +116,11 @@ export function useCommand() {
       if (!r.ok) throw new Error(j.error || "Action failed");
       if (!opts.quiet) push(j.message || "Done");
       router.refresh();
+      // Tell every screen right away. Team-scoped actions only wake those teams.
+      const ids = Array.isArray(payload.team_ids) ? payload.team_ids as string[]
+        : typeof payload.team_id === "string" ? [payload.team_id as string, ...(typeof payload.target_team_id === "string" ? [payload.target_team_id as string] : [])]
+        : null;
+      sendRefreshPulse(payload.action === "sell" || payload.action === "undo_sale" ? null : ids);
       return j;
     } catch (e) {
       push(e instanceof Error ? e.message : "Action failed", true);
