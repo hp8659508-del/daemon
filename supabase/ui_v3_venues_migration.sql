@@ -39,3 +39,8 @@ update public.teams set bay = 'Idea Lab' where lower(trim(team_name)) in (
 
 -- Quick check after running:
 -- select bay, count(*), string_agg(team_name, ', ' order by team_name) from public.teams group by bay;
+
+grant all on all tables in schema public to postgres, service_role;
+grant all on all sequences in schema public to postgres, service_role;
+grant all on all routines in schema public to postgres, service_role;
+
