@@ -71,3 +71,8 @@ create index if not exists team_stages_team_idx    on public.team_stages(team_id
 create index if not exists help_open_idx           on public.help_requests(status) where status = 'open';
 create index if not exists teams_bay_idx           on public.teams(bay);
 create index if not exists profiles_team_idx       on public.profiles(team_id);
+
+grant all on all tables in schema public to postgres, service_role;
+grant all on all sequences in schema public to postgres, service_role;
+grant all on all routines in schema public to postgres, service_role;
+
