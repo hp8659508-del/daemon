@@ -345,7 +345,7 @@ export async function POST(request: Request) {
         const teamIds = ids(body.team_ids);
         const activity = String(body.activity);
         const status = String(body.status);
-        if (!(ACTS.includes(activity) || activity === "all") || !["upcoming", "live", "closed"].includes(status)) throw new Error("Unknown stage.");
+        if (!(ACTS.includes(activity) || activity === "quiz" || activity === "all") || !["upcoming", "live", "closed"].includes(status)) throw new Error("Unknown stage.");
         const acts = activity === "all" ? ACTS : [activity];
         if (status === "upcoming") {
           // Reset = forget the round entirely, so it shows as upcoming for every selected team.
@@ -381,11 +381,59 @@ export async function POST(request: Request) {
           closing_end_at: status === "closed" ? snapshot[team_id].end : null,
         }))).map(r => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)));
         fail((await db.from("team_stages").upsert(rows, { onConflict: "team_id,activity" })).error);
+        if (acts.includes("quiz") && status === "closed") {
+          // closing Rapid Fire submits whatever sections are still open
+          const { data: open } = await db.from("quiz_runs").select("team_id,section_id").in("team_id", teamIds).is("submitted_at", null);
+          for (const r of open ?? []) await db.rpc("quiz_submit_section", { p_team: r.team_id, p_section: r.section_id });
+        }
         await log(teamIds.map(team_id => ({ team_id, kind: "round", action: status === "live" ? "opened" : "closed",
           label: status === "closed" ? `${acts.join(", ")} closed · points confirmed · deadline ${snapshot[team_id]?.end ? new Date(snapshot[team_id].end as string).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "not set"}` : `${acts.join(", ")} opened`,
           points: status === "closed" ? snapshot[team_id]?.pts ?? null : null })));
         return NextResponse.json({ ok: true, message: `${acts.join(" + ")} → ${status} for ${teamIds.length} team(s)` });
       }
+      /* ---------------- Rapid Fire (host) ---------------- */
+      case "quiz_section_save": {
+        if (!isHost) throw new Error("Only a host can edit Rapid Fire.");
+        const row = { title: str(body.title, 60), time_limit_sec: int(body.time_limit_sec, 10, 7200), points_per_correct: int(body.points_per_correct, -1000, 1000), idx: int(body.idx ?? 0, 0, 1000) };
+        fail((await (body.id ? db.from("quiz_sections").update(row).eq("id", str(body.id)) : db.from("quiz_sections").insert(row))).error);
+        return NextResponse.json({ ok: true, message: "Section saved" });
+      }
+      case "quiz_section_delete": {
+        if (!isHost) throw new Error("Only a host can edit Rapid Fire.");
+        fail((await db.from("quiz_sections").delete().eq("id", str(body.id))).error);
+        return NextResponse.json({ ok: true, message: "Section deleted" });
+      }
+      case "quiz_question_save": {
+        if (!isHost) throw new Error("Only a host can edit Rapid Fire.");
+        const options = Array.isArray(body.options) ? (body.options as unknown[]).map(o => String(o ?? "").trim()).filter(Boolean) : [];
+        if (options.length < 2) throw new Error("Give at least two options.");
+        const correct = int(body.correct, 0, options.length - 1);
+        const row = { section_id: str(body.section_id), prompt: str(body.prompt, 400), options, correct, idx: int(body.idx ?? 0, 0, 1000) };
+        fail((await (body.id ? db.from("quiz_questions").update(row).eq("id", str(body.id)) : db.from("quiz_questions").insert(row))).error);
+        return NextResponse.json({ ok: true, message: "Question saved" });
+      }
+      case "quiz_question_delete": {
+        if (!isHost) throw new Error("Only a host can edit Rapid Fire.");
+        fail((await db.from("quiz_questions").delete().eq("id", str(body.id))).error);
+        return NextResponse.json({ ok: true, message: "Question deleted" });
+      }
+      case "quiz_reset": {
+        const teamIds = ids(body.team_ids);
+        for (const id of teamIds) fail((await db.rpc("quiz_reset", { p_team: id })).error);
+        await log(teamIds.map(team_id => ({ team_id, kind: "quiz", action: "reset", label: "Rapid Fire attempt reset" })));
+        return NextResponse.json({ ok: true, message: `Rapid Fire reset for ${teamIds.length} team(s)` });
+      }
+      case "quiz_admin": {
+        const [secs, qs, runs, flags] = await Promise.all([
+          db.from("quiz_sections").select("*").order("idx"),
+          db.from("quiz_questions").select("*").order("idx"),
+          db.from("quiz_runs").select("*"),
+          db.from("quiz_flags").select("team_id,kind,created_at").order("created_at", { ascending: false }),
+        ]);
+        fail(secs.error);
+        return NextResponse.json({ ok: true, data: { sections: secs.data, questions: qs.data, runs: runs.data, flags: flags.data } });
+      }
+
       case "bay": {
         const teamIds = ids(body.team_ids);
         const bay = typeof body.bay === "string" && body.bay.trim() ? body.bay.trim().slice(0, 30) : null;
