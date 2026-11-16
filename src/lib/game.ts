@@ -12,7 +12,7 @@ export const ACTIVITIES: { key: Activity; label: string; verb: string }[] = [
 ];
 
 export type Stage = { team_id: string; activity: Activity; status: StageStatus; opened_at: string | null; closed_at: string | null; closing_points: number | null; closing_end_at: string | null };
-export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null; problem_statement: string | null; ps_locked: boolean };
+export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null; problem_statement: string | null; ps_locked: boolean; bingo_mode: "rows" | "columns" | null };
 export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean; kind: CardKind; effect: CardEffect; pool: "auction" | "spin" };
 export type LedgerRow = { id: string; team_id: string; round: "auction" | "spin" | "bingo" | "penalty"; label: string; card_id: string | null; points_before: number; points_after: number; minutes_before: number; minutes_after: number; created_at: string };
 export type TeamCard = { id: string; team_id: string; purchase_id: string | null; item_id: string | null; name: string; kind: CardKind; effect: CardEffect; source: string; status: string; detail: string | null; spent_at: string | null; created_at: string };
@@ -97,7 +97,7 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
   const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal, cards, pens, ledger] = await Promise.all([
-    db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
+    db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked,bingo_mode").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
     db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,pool,created_at").order("created_at"),
     db.from("powerups").select("*").order("created_at"),
@@ -203,6 +203,7 @@ export function teamSlice(w: World, teamId: string) {
     venueKey: team?.bay || "all",
     problemStatement: team?.problem_statement ?? null,
     psLocked: team?.ps_locked ?? false,
+    bingoMode: team?.bingo_mode ?? null,
     cards: w.cards.filter(c => c.team_id === teamId),
     penalties: w.penalties.filter(p => p.team_id === teamId || p.landed_team_id === teamId)
       .map(p => ({ ...p, from_name: names[p.team_id] ?? "", landed_name: p.landed_team_id ? names[p.landed_team_id] ?? "" : null })),
