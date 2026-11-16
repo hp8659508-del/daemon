@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       questions = ordered.map((q, pos) => {
         const perm = optPerm[pos], opts = q.options as string[];
         const saved = (ans ?? []).find(a => a.question_id === q.id)?.choice;
-        return { id: q.id, prompt: (q as { prompt: string }).prompt, options: perm.map(o => opts[o]), choice: saved === undefined || saved === null ? null : perm.indexOf(saved) };
+        return { id: q.id, prompt: (q as any).prompt, options: perm.map(o => opts[o]), choice: saved === undefined || saved === null ? null : perm.indexOf(saved) };
       });
     }
     return NextResponse.json({
