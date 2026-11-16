@@ -219,3 +219,4 @@ select.field { appearance: none; -webkit-appearance: none; padding-right: 36px; 
 .cards-table th, .cards-table td { text-align: left !important; border-left: 0 !important; }
 .cards-table td { color: inherit; }
 .cards-table td:nth-child(4) { color: #6E6A88; }
+.seg button:disabled { opacity: .5; cursor: not-allowed; }

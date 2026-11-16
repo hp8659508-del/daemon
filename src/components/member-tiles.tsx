@@ -77,7 +77,7 @@ function MemberForm({ init, onSave, onCancel, busy }: { init: Partial<MemberRow>
     <form className="panel space-y-2 p-4" onSubmit={e => { e.preventDefault(); onSave(f); }}>
       <div className="grid grid-cols-[1fr_110px] gap-2">
         <input className="field" required autoFocus placeholder="Full name" value={f.full_name} onChange={up("full_name")} />
-        <select className="field" value={f.role} onChange={up("role")}><option value="lead">Team lead</option><option value="member">Teammate</option></select>
+        <div className="seg">{[["lead", "Team lead"], ["member", "Teammate"]].map(([k, l]) => <button key={k} type="button" data-on={f.role === k} onClick={() => setF({ ...f, role: k })}>{l}</button>)}</div>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <input className="field num uppercase" placeholder="USN" value={f.usn} onChange={up("usn")} />

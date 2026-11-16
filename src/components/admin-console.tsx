@@ -9,6 +9,7 @@ import { useBroadcastSand } from "@/components/sand-clock";
 import MemberTiles from "@/components/member-tiles";
 import Picker from "@/components/picker";
 import RoundLedgers from "@/components/round-ledger";
+import { buildLedger } from "@/lib/ledger";
 import { HistoryFeed } from "@/components/team-arena";
 import { LETTERS } from "@/lib/bingo-shared";
 import { KINDS, PHASES, PERKS, effectText, kindLabel, boxName, type CardKind, type CardEffect } from "@/lib/cards";
@@ -775,8 +776,8 @@ function Powerups({ w, cmd, paddle, staff }: Ctx) {
           <div className="grid gap-4 lg:grid-cols-2">
             <TeamPicker w={w} paddle={paddle} value={team} onChange={setTeam} />
             <div className="space-y-3">
-              <select className="field" value={pu} onChange={e => setPu(e.target.value)}><option value="">Choose a power-up…</option>{w.powerups.map(p => <option key={p.id} value={p.id}>{p.name} ({fmtMins(p.minutes_delta)})</option>)}</select>
-              {sel?.targets_rival && <select className="field" value={target} onChange={e => setTarget(e.target.value)}><option value="">Target team…</option>{w.teams.filter(t => t.id !== team).map(t => <option key={t.id} value={t.id}>{t.team_name}</option>)}</select>}
+              <Picker placeholder="Choose a power-up…" value={pu} onChange={setPu} options={w.powerups.map(p => ({ value: p.id, label: p.name, hint: fmtMins(p.minutes_delta) }))} />
+              {sel?.targets_rival && <Picker placeholder="Target team…" value={target} onChange={setTarget} options={w.teams.filter(t => t.id !== team).map(t => ({ value: t.id, label: `#${paddle[t.id]} ${t.team_name}` }))} />}
               <button className="key-primary w-full" disabled={!team || !pu || (sel?.targets_rival && !target) || cmd.busy} onClick={() => cmd.run({ action: "award", source: "manual", team_id: team, powerup_id: pu, target_team_id: target || undefined })}>Grant</button>
             </div>
           </div>
@@ -985,8 +986,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                 </td>
                 <td className="p-3"><button className="num text-xs underline-offset-2 hover:underline" onClick={() => setOpenTeam(t.id)}>{w.members.filter(m => m.team_id === t.id).length} · <span className="text-ok">{w.members.filter(m => m.team_id === t.id && m.checked_in).length}✓</span></button></td>
                 <td className="p-3">{staff.isHost ? (
-                  <select className="border border-graphite bg-white px-1.5 py-1 text-xs" value={t.bay ?? ""} onChange={e => cmd.run({ action: "team_move", team_ids: [t.id], bay: e.target.value || null })}>
-                    <option value="">Unassigned</option>{VENUES.map(v => <option key={v}>{v}</option>)}</select>) : <span className="text-xs">{t.bay}</span>}</td>
+                  <div className="seg !p-0.5">{["", ...VENUES].map(v => <button key={v || "none"} type="button" className="!px-2 !py-1 !text-[10px]" data-on={(t.bay ?? "") === v} onClick={() => (t.bay ?? "") !== v && cmd.run({ action: "team_move", team_ids: [t.id], bay: v || null })}>{v ? v.split(" ")[0] : "None"}</button>)}</div>) : <span className="text-xs">{t.bay}</span>}</td>
                 <td className="num p-3 text-right font-semibold">{w.balances[t.id] ?? 0}</td>
                 <td className="p-3"><span className="flex gap-1">{(["auction", "spin", "bingo"] as Activity[]).map(a => <StatusLed key={a} status={stageOf(t.id, a)} />)}</span></td>
                 <td className="p-3"><div className="flex justify-end gap-1">
@@ -1005,7 +1005,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
           <p className="eyebrow flex items-center gap-2"><UserPlus size={13} /> Add a team</p>
           <form className="mt-3 space-y-3" onSubmit={async e => { e.preventDefault(); if (await cmd.run({ action: "team_create", ...nf })) setNf({ ...nf, team_name: "", password: "" }); }}>
             <input className="field" required placeholder="Team name" value={nf.team_name} onChange={e => setNf({ ...nf, team_name: e.target.value })} />
-            {staff.isHost ? <select className="field" value={nf.bay} onChange={e => setNf({ ...nf, bay: e.target.value })}><option value="">No venue yet</option>{VENUES.map(v => <option key={v}>{v}</option>)}</select>
+            {staff.isHost ? <div className="seg">{["", ...VENUES].map(v => <button key={v || "none"} type="button" data-on={nf.bay === v} onClick={() => setNf({ ...nf, bay: v })}>{v || "No venue yet"}</button>)}</div>
               : <p className="text-xs text-muted">Will be added to <b>{staff.venue}</b>.</p>}
             <input className="field" placeholder="Password (blank = TEAMNAME_123)" value={nf.password} onChange={e => setNf({ ...nf, password: e.target.value })} />
             <button className="key-primary w-full" disabled={cmd.busy}>Create team & login</button>
@@ -1063,7 +1063,7 @@ function TeamDrawer({ w, cmd, paddle, stageOf, staff, teamId, secret, close, onD
         </div>
 
         <DrawerCards t={t} w={w} cmd={cmd} paddle={paddle} />
-        <div className="panel mt-5 p-4"><RoundLedgers compact rows={w.ledger.filter(l => l.team_id === t.id)} baseEnd={w.settings.hackathon_end_at} /></div>
+        <div className="panel mt-5 p-4"><RoundLedgers compact rows={buildLedger(t.id, w.txs, w.teamPowerups, w.cards)} baseEnd={w.settings.hackathon_end_at} /></div>
 
         <div className="panel mt-5 flex flex-wrap items-center gap-3 p-4">
           <KeyRound size={16} />
@@ -1219,8 +1219,7 @@ function StaffTab({ cmd }: Ctx) {
         {!rows ? <p className="p-5 text-sm text-muted">Loading…</p> : rows.map(r => (
           <div key={r.id} className="table-row flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
             <span className="min-w-0 flex-1 truncate font-semibold">{r.email}{r.me && <span className="chip ml-2">you</span>}</span>
-            <select className="border border-graphite bg-white px-2 py-1 text-xs" value={r.venue ?? ""} disabled={r.me} onChange={async e => { await cmd.run({ action: "staff_save", id: r.id, venue: e.target.value }); load(); }}>
-              <option value="">Host · all venues</option>{VENUES.map(v => <option key={v} value={v}>Admin · {v}</option>)}</select>
+            <div className="seg !p-0.5">{["", ...VENUES].map(v => <button key={v || "host"} type="button" disabled={r.me} className="!px-2 !py-1 !text-[10px]" data-on={(r.venue ?? "") === v} onClick={async () => { if ((r.venue ?? "") !== v) { await cmd.run({ action: "staff_save", id: r.id, venue: v }); load(); } }}>{v ? v.split(" ")[0] : "Host"}</button>)}</div>
             <span className="text-xs text-faint">{r.last ? `seen ${fmtTime(r.last)}` : "never signed in"}</span>
             <button className="key key-sm" title="Set password" onClick={async () => { const pw = window.prompt(`New password for ${r.email} (min 8 chars)`); if (pw) { await cmd.run({ action: "staff_save", id: r.id, venue: r.venue ?? "", password: pw }); } }}><KeyRound size={12} /></button>
             {!r.me && <button className="key key-sm" title="Remove" onClick={async () => { if (confirm(`Remove ${r.email} as an organiser?`)) { await cmd.run({ action: "staff_delete", id: r.id }); load(); } }}><Trash2 size={12} /></button>}
@@ -1231,7 +1230,7 @@ function StaffTab({ cmd }: Ctx) {
         <form className="mt-3 space-y-3" onSubmit={async e => { e.preventDefault(); if (await cmd.run({ action: "staff_save", ...f })) { setF({ email: "", password: "", venue: f.venue }); load(); } }}>
           <input className="field" type="email" required placeholder="Email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
           <input className="field" type="text" required minLength={8} placeholder="Password (min 8)" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} />
-          <select className="field" value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })}><option value="">Host · all venues</option>{VENUES.map(v => <option key={v} value={v}>Venue admin · {v}</option>)}</select>
+          <div className="seg">{["", ...VENUES].map(v => <button key={v || "host"} type="button" data-on={f.venue === v} onClick={() => setF({ ...f, venue: v })}>{v ? `Admin · ${v}` : "Host · all venues"}</button>)}</div>
           <button className="key-primary w-full" disabled={cmd.busy}>Add organiser</button>
         </form>
         <p className="mt-2 text-[11px] text-faint">If the email already has an account, it&apos;s promoted and its password is replaced. Organisers sign in with their email on the normal login page.</p>

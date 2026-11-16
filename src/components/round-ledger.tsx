@@ -13,6 +13,7 @@ const ROUNDS = [
   { key: "spin", label: "Spin wheel" },
   { key: "bingo", label: "Bingo" },
   { key: "penalty", label: "Penalties" },
+  { key: "other", label: "Organiser" },
 ] as const;
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
