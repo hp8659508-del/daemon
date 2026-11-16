@@ -423,19 +423,34 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
             <button className="key key-sm" disabled={ps === (t.problem_statement ?? "")} onClick={() => cmd.run({ action: "ps_set", team_id: t.id, text: ps })}>Save</button></div>
         )}
       </div>
-      <div className="mt-3 space-y-1.5">
-        {cards.length === 0 ? <p className="text-sm text-muted">No cards yet.</p> : shown.length === 0 ? <p className="text-sm text-faint">No cards in this filter.</p> : shown.map(c => (
-          <div key={c.id} className="table-row py-1.5 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-[9px] font-bold uppercase tracking-wider text-faint">{c.kind === "note" ? (PHASES.find(p => p.key === c.effect?.phase)?.label ?? "Note") : kindLabel(c.kind)}</span>
-              <span className="min-w-0 flex-1"><b>{c.name}</b>{c.source === "trump" && <span className="text-faint"> · via trump</span>}{c.detail && <span className="text-muted"> · {c.detail}</span>}</span>
-              {(["time", "points", "bingo", "trump"].includes(c.kind) || c.status === "spent") && <span className={`text-[11px] font-bold ${STATUS_TONE[c.status] ?? ""}`}>{c.status === "spent" ? "Used" : c.status === "pending" ? "Pick card" : c.status === "resolved" ? "Copied" : "Applied"}</span>}
+      {cards.length === 0 ? <p className="mt-3 text-sm text-muted">No cards yet.</p> : (["auction", "spin"] as const).map(round => {
+        const rows = shown.filter(c => (round === "spin" ? c.source === "spin" : c.source !== "spin"));
+        if (!rows.length) return null;
+        return (
+          <div key={round} className="mt-4">
+            <p className="eyebrow mb-2">{round === "spin" ? "Spin wheel" : "Auction"} · {rows.length}</p>
+            <div className="overflow-x-auto rounded-lg border border-silver/70">
+              <table className="ledger cards-table">
+                <thead><tr><th>Received</th><th>Card</th><th>Type</th><th>What it does</th><th>Status</th></tr></thead>
+                <tbody>
+                  {rows.map(c => (
+                    <tr key={c.id}>
+                      <td className="num whitespace-nowrap text-muted">{new Date(c.created_at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })}</td>
+                      <td className="font-semibold">{c.name}{c.source === "trump" && <span className="font-normal text-faint"> (via trump)</span>}
+                        {c.kind === "trump" && c.status === "pending" && <TrumpResolve card={c} w={w} full={full} cmd={cmd} teamId={t.id} />}
+                        {c.effect?.perk === "swap_ps" && c.status === "held" && <SwapPs card={c} t={t} full={full} cmd={cmd} paddle={paddle} />}
+                      </td>
+                      <td className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-muted">{c.kind === "note" ? (PHASES.find(p => p.key === c.effect?.phase)?.label ?? "Note") : kindLabel(c.kind)}</td>
+                      <td className="text-muted">{c.detail || effectText(c.kind, c.effect)}</td>
+                      <td className={`whitespace-nowrap text-xs font-bold ${STATUS_TONE[c.status] ?? ""}`}>{c.status === "spent" ? "Used" : c.status === "pending" ? "Pick card" : c.status === "resolved" ? "Copied" : c.status === "held" ? "Held" : "Applied"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            {c.kind === "trump" && c.status === "pending" && <TrumpResolve card={c} w={w} full={full} cmd={cmd} teamId={t.id} />}
-            {c.effect?.perk === "swap_ps" && c.status === "held" && <SwapPs card={c} t={t} full={full} cmd={cmd} paddle={paddle} />}
           </div>
-        ))}
-      </div>
+        );
+      })}
       {pens.length > 0 && (
         <div className="mt-3 border-t border-silver/70 pt-2">
           <p className="eyebrow mb-1">Penalties</p>
@@ -479,7 +494,7 @@ function TrumpResolve({ card, w, full, cmd, teamId }: { card: World["cards"][num
   const needsCell = it?.kind === "bingo" && it.effect?.mode !== "column";
   const marks = new Set(w.marks.filter(m => m.team_id === teamId).map(m => m.idx));
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 sm:pl-[6.5rem]">
+    <div className="mt-2 flex flex-wrap items-center gap-2">
       <Picker className="min-w-[260px] flex-1" placeholder="Card the team picks…" value={item} onChange={v => { setItem(v); setCell(""); }}
         options={full.items.filter(i => i.kind !== "trump" && i.pool !== "spin").map(i => ({ value: i.id, label: i.item_name, hint: effectText(i.kind, i.effect) }))} />
       {needsCell && <Picker className="min-w-[200px]" placeholder="Box…" value={cell} onChange={setCell}
@@ -494,7 +509,7 @@ function SwapPs({ card, t, full, cmd, paddle }: { card: World["cards"][number]; 
   const other = full.teams.find(x => x.id === target);
   const options = full.teams.filter(x => x.id !== t.id);
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 sm:pl-[6.5rem]">
+    <div className="mt-2 flex flex-wrap items-center gap-2">
       <Picker className="min-w-[260px] flex-1" placeholder="Swap with…" value={target} onChange={setTarget}
         options={options.map(x => ({ value: x.id, label: `#${paddle[x.id]} ${x.team_name}`, disabled: !x.problem_statement || x.ps_locked, hint: x.ps_locked ? "Already swapped" : x.problem_statement ? x.problem_statement : "No problem statement yet" }))} />
       {!t.problem_statement && <span className="self-center text-xs text-err">Save this team's problem statement first</span>}

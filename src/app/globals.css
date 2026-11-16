@@ -216,3 +216,6 @@ header .dh-brand-text { transition: opacity .6s, transform .6s; }
 select.field { appearance: none; -webkit-appearance: none; padding-right: 36px; border-radius: 10px; cursor: pointer;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%230E0B2B' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 12px center; }
+.cards-table th, .cards-table td { text-align: left !important; border-left: 0 !important; }
+.cards-table td { color: inherit; }
+.cards-table td:nth-child(4) { color: #6E6A88; }
