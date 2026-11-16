@@ -418,7 +418,7 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
         {cards.length === 0 ? <p className="text-sm text-muted">No cards yet.</p> : shown.length === 0 ? <p className="text-sm text-faint">No cards in this filter.</p> : shown.map(c => (
           <div key={c.id} className="table-row py-1.5 text-sm">
             <div className="flex items-center gap-2">
-              <span className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wider text-faint">{c.kind === "note" ? (PHASES.find(p => p.key === c.effect?.phase)?.label.split(" ")[0] ?? "Note") : kindLabel(c.kind)}</span>
+              <span className="w-24 shrink-0 text-[9px] font-bold uppercase tracking-wider text-faint">{c.kind === "note" ? (PHASES.find(p => p.key === c.effect?.phase)?.label ?? "Note") : kindLabel(c.kind)}</span>
               <span className="min-w-0 flex-1"><b>{c.name}</b>{c.source === "trump" && <span className="text-faint"> · via trump</span>}{c.detail && <span className="text-muted"> · {c.detail}</span>}</span>
               {(["time", "points", "bingo", "trump"].includes(c.kind) || c.status === "spent") && <span className={`text-[11px] font-bold ${STATUS_TONE[c.status] ?? ""}`}>{c.status === "spent" ? "Used" : c.status === "pending" ? "Pick card" : c.status === "resolved" ? "Copied" : "Applied"}</span>}
             </div>
@@ -470,7 +470,7 @@ function TrumpResolve({ card, w, full, cmd, teamId }: { card: World["cards"][num
   const needsCell = it?.kind === "bingo" && it.effect?.mode !== "column";
   const marks = new Set(w.marks.filter(m => m.team_id === teamId).map(m => m.idx));
   return (
-    <div className="mt-2 flex flex-wrap gap-2 pl-14">
+    <div className="mt-2 flex flex-wrap gap-2 pl-[6.5rem]">
       <select className="field !py-1 text-sm" value={item} onChange={e => { setItem(e.target.value); setCell(""); }}>
         <option value="">Card the team picks…</option>
         {full.items.filter(i => i.kind !== "trump").map(i => <option key={i.id} value={i.id}>{i.item_name} — {effectText(i.kind, i.effect)}</option>)}
@@ -484,13 +484,14 @@ function TrumpResolve({ card, w, full, cmd, teamId }: { card: World["cards"][num
 function SwapPs({ card, t, full, cmd, paddle }: { card: World["cards"][number]; t: Team; full: World; cmd: Cmd; paddle: Record<string, number> }) {
   const [target, setTarget] = useState("");
   const other = full.teams.find(x => x.id === target);
-  const options = full.teams.filter(x => x.id !== t.id && !x.ps_locked && x.problem_statement);
+  const options = full.teams.filter(x => x.id !== t.id);
   return (
-    <div className="mt-2 flex flex-wrap gap-2 pl-14">
+    <div className="mt-2 flex flex-wrap gap-2 pl-[6.5rem]">
       <select className="field !py-1 text-sm" value={target} onChange={e => setTarget(e.target.value)}>
         <option value="">Swap with…</option>
-        {options.map(x => <option key={x.id} value={x.id}>#{paddle[x.id]} {x.team_name} — {x.problem_statement!.slice(0, 50)}</option>)}
+        {options.map(x => <option key={x.id} value={x.id} disabled={!x.problem_statement || x.ps_locked}>#{paddle[x.id]} {x.team_name} — {x.ps_locked ? "already swapped" : x.problem_statement ? x.problem_statement.slice(0, 50) : "no problem statement yet"}</option>)}
       </select>
+      {!t.problem_statement && <span className="self-center text-xs text-err">Save this team's problem statement first</span>}
       <button className="key key-sm" disabled={!target || !t.problem_statement || cmd.busy} title={!t.problem_statement ? "Log this team's problem statement first" : ""}
         onClick={() => confirm(`Swap problem statements between ${t.team_name} and ${other?.team_name}? Both become final.`) && cmd.run({ action: "ps_swap", id: card.id, target_id: target })}>Swap</button>
     </div>
