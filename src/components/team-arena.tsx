@@ -294,7 +294,7 @@ function BingoCard({ v }: { v: TeamView }) {
   const pts = v.cells.filter(c => marked.has(c.idx)).reduce((a, c) => a + c.points, 0) + lines * v.lineBonus + (full ? v.fullBonus : 0);
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-      <div className="panel p-4 sm:p-6"><BingoBoard cells={v.cells} marked={marked} rewards={v.rewards} /></div>
+      <div className="panel p-4 sm:p-6"><BingoBoard cells={v.cells} marked={marked} rewards={v.rewards} mode={v.bingoMode} /></div>
       <div className="space-y-4">
         <div className={`panel p-4 ${v.bingoMode ? "bg-cobalt-wash" : ""}`}>
           <p className="eyebrow">Your direction</p>

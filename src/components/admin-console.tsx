@@ -618,7 +618,7 @@ function Bingo({ w, cmd, paddle, stageOf, staff }: Ctx) {
         </div>
         {edit ? <div className="grid grid-cols-5 gap-2">{w.cells.map(c => <CellEditor key={c.idx} c={c} cmd={cmd} />)}</div>
           : !team ? <Empty title="Choose a team">Tap a square to stamp a dare, and tap again to undo. Completing a column strikes its letter and pays the bonus automatically.</Empty>
-          : <BingoBoard cells={w.cells} marked={marked} rewards={w.settings.bingo_rewards} onToggle={stamp} />}
+          : <BingoBoard cells={w.cells} marked={marked} rewards={w.settings.bingo_rewards} onToggle={stamp} mode={w.teams.find(x => x.id === team)?.bingo_mode} />}
       </div>
       <div className="panel p-4">
         <h3 className="font-display mb-2">Progress</h3>
