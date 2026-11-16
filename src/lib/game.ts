@@ -40,12 +40,27 @@ export function completedLines(marked: Set<number>, cells: Cell[]) {
   return LINES.filter(l => l.every(i => marked.has(i) || free.has(i)));
 }
 
-/** Minutes that land on a team: its own self-targeted power-ups + rival effects aimed at it. */
-export function minutesFor(teamId: string, rows: TeamPowerup[]) {
-  return rows.reduce((sum, p) => {
-    if (p.target_team_id) return p.target_team_id === teamId ? sum + p.minutes_delta : sum;
-    return p.team_id === teamId ? sum + p.minutes_delta : sum;
-  }, 0);
+type StageLite = { team_id: string; activity: string; status: string };
+
+/** Does this power-up's time effect land on `teamId` at all? (own self-effects + rival effects aimed at it) */
+export function landsOn(teamId: string, p: TeamPowerup) {
+  return p.target_team_id ? p.target_team_id === teamId : p.team_id === teamId;
+}
+/**
+ * A power-up's minutes are CONFIRMED once the round it came from is closed for
+ * the team that earned it (auction lot → that team's auction closes, spin → spin
+ * closes, bingo → bingo closes). Organiser grants ("manual") apply immediately.
+ */
+export function isConfirmed(p: TeamPowerup, stages: StageLite[]) {
+  if (!["auction", "spin", "bingo"].includes(p.source)) return true;
+  return stages.some(s => s.team_id === p.team_id && s.activity === p.source && s.status === "closed");
+}
+/** Minutes on a team's deadline. Pass `stages` to count only confirmed effects (what the clock uses). */
+export function minutesFor(teamId: string, rows: TeamPowerup[], stages?: StageLite[]) {
+  return rows.reduce((sum, p) => (landsOn(teamId, p) && (!stages || isConfirmed(p, stages)) ? sum + p.minutes_delta : sum), 0);
+}
+export function pendingMinutes(teamId: string, rows: TeamPowerup[], stages: StageLite[]) {
+  return rows.reduce((sum, p) => (landsOn(teamId, p) && !isConfirmed(p, stages) ? sum + p.minutes_delta : sum), 0);
 }
 
 export function projectedEnd(base: string | null, minutes: number) {
@@ -78,7 +93,7 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
   const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal] = await Promise.all([
     db.from("teams").select("id,team_name,username,bay,paddle").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
-    own(db.from("team_stages").select("*")),
+    db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active").order("item_name"),
     db.from("powerups").select("*").order("created_at"),
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
@@ -143,8 +158,10 @@ export function teamSlice(w: World, teamId: string) {
     stages: { auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
     purchases: w.purchases.filter(p => p.team_id === teamId).map(p => ({ ...p, item_name: w.items.find(i => i.id === p.item_id)?.item_name ?? "Item" })),
     txs: w.txs.filter(t => t.team_id === teamId).slice(0, 80),
-    powerups: myPowerups,
-    minutes: minutesFor(teamId, w.teamPowerups),
+    powerups: myPowerups.map(p => ({ ...p, confirmed: isConfirmed(p, w.stages) })),
+    minutes: minutesFor(teamId, w.teamPowerups, w.stages),
+    pendingMinutes: pendingMinutes(teamId, w.teamPowerups, w.stages),
+    pointsProvisional: (["auction", "spin", "bingo"] as Activity[]).some(a => stageFor(a).status === "live"),
     baseEnd: w.settings.hackathon_end_at,
     startedAt: w.settings.hackathon_started_at,
     members: w.members.filter(m => m.team_id === teamId),
@@ -155,7 +172,8 @@ export function teamSlice(w: World, teamId: string) {
     activity: w.activity.filter(a => a.team_id === teamId).slice(0, 200),
     rewards: w.settings.bingo_rewards ?? {},
     fullBonus: w.settings.bingo_full_bonus,
-    endAt: projectedEnd(w.settings.hackathon_end_at, minutesFor(teamId, w.teamPowerups)),
+    endAt: projectedEnd(w.settings.hackathon_end_at, minutesFor(teamId, w.teamPowerups, w.stages)),
+    pendingEndAt: projectedEnd(w.settings.hackathon_end_at, minutesFor(teamId, w.teamPowerups)),
     cells: w.cells,
     marked: w.marks.filter(m => m.team_id === teamId).map(m => m.idx),
     lineBonus: w.settings.bingo_line_bonus,

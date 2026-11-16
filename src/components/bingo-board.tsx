@@ -26,7 +26,7 @@ export default function BingoBoard({
     <div className="space-y-3">
       <div className={`grid grid-cols-5 ${gap}`}>
         {LETTERS.map((L, i) => (
-          <div key={L} className={`relative grid place-items-center overflow-hidden border border-graphite py-2 shadow-[3px_3px_0_#111] ${done[i] ? "bg-graphite text-white" : "bg-white"}`}>
+          <div key={L} className={`relative grid place-items-center overflow-hidden border border-graphite py-2 shadow-[3px_3px_0_#0E0B2B] ${done[i] ? "bg-graphite text-white" : "bg-white"}`}>
             <span className={`font-display text-3xl sm:text-5xl ${done[i] ? "opacity-60" : ""}`}>{L}</span>
             {done[i] && <span className="strike-h pointer-events-none absolute left-[12%] right-[12%] top-[40%] h-[5px] rounded-full bg-ember" />}
             {rewards && <span className="mt-0.5 line-clamp-1 px-1 text-[9px] font-semibold uppercase tracking-wider opacity-70">{rewards[L] || "Reward soon"}</span>}
@@ -41,7 +41,7 @@ export default function BingoBoard({
             if (!c) return <div key={idx} className="aspect-square" />;
             const on = marked.has(idx);
             if (c.is_free) return (
-              <div key={idx} className="grid aspect-square place-items-center border border-graphite bg-white shadow-[3px_3px_0_#111]"
+              <div key={idx} className="grid aspect-square place-items-center border border-graphite bg-white shadow-[3px_3px_0_#0E0B2B]"
                 style={{ backgroundImage: "linear-gradient(135deg,rgba(127,234,255,.25),rgba(197,151,255,.25),rgba(255,201,138,.25))" }}>
                 <LogoGlass size={compact ? 34 : 52} />
               </div>
@@ -49,7 +49,7 @@ export default function BingoBoard({
             return (
               <button key={idx} type="button" disabled={!onToggle || busy} onClick={() => onToggle?.(idx)} aria-pressed={on}
                 className={`relative flex aspect-square flex-col items-center justify-center border border-graphite p-1.5 text-center transition-[transform,box-shadow,background] duration-100
-                  ${on ? "translate-x-[3px] translate-y-[3px] bg-[#EEF1FF] shadow-none" : "bg-white shadow-[3px_3px_0_#111] hover:bg-[#F4F4F2]"}
+                  ${on ? "translate-x-[3px] translate-y-[3px] bg-[#E7E1FF] shadow-none" : "bg-white shadow-[3px_3px_0_#0E0B2B] hover:bg-[#F4F3FF]"}
                   ${onToggle ? "cursor-pointer active:translate-x-[3px] active:translate-y-[3px] active:shadow-none" : "cursor-default"}`}>
                 <span className={`${compact ? "text-[9px]" : "text-[10px] sm:text-[12.5px]"} font-semibold leading-tight ${on ? "text-muted" : ""}`}>{c.label}</span>
                 {c.points !== 0 && <span className="num absolute bottom-1 right-1.5 text-[9px] text-faint">+{c.points}</span>}

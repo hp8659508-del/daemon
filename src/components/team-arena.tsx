@@ -8,6 +8,7 @@ import { onLotFeed, type LotFeed } from "@/lib/realtime";
 import MemberTiles from "@/components/member-tiles";
 import { COLUMNS } from "@/lib/bingo-shared";
 import { Hourglass, LiveSync, useNow, fmtClock, fmtTime, fmtMins, StatusLed, Empty } from "@/components/ui";
+import { useBroadcastSand } from "@/components/sand-clock";
 
 type Tab = Activity | "loadout" | "history" | "team";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
@@ -28,7 +29,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
 
   if (v.locked) return (
     <section className="panel foil mx-auto mt-10 grid max-w-xl place-items-center p-10 text-center">
-      <Hourglass fill={0.5} size={90} />
+      <Hourglass mode="loader" size={80} />
       <p className="eyebrow mt-6">Portal paused</p>
       <h1 className="font-display mt-2 text-4xl">Hold tight</h1>
       <p className="mt-3 text-sm text-muted">{v.lockMessage || "The organisers have paused the portal for a moment. This page will come back on its own."}</p>
@@ -97,39 +98,46 @@ function Broadcast({ text }: { text: string }) {
 /* ---------------- The instrument cluster: clock + balance + rank ---------------- */
 function Instrument({ v, paddle }: { v: TeamView; paddle: number }) {
   const now = useNow();
-  const end = v.endAt ? new Date(v.endAt).getTime() : null;
-  const base = v.baseEnd ? new Date(v.baseEnd).getTime() : null;
+  const end = v.endAt ? new Date(v.endAt).getTime() : null;          // confirmed deadline
   const ref = v.pausedAt ? new Date(v.pausedAt).getTime() : now;
   const left = end && ref ? end - ref : null;
-  // Fill relative to a 24h hackathon window, capped.
-  const total = v.startedAt && base ? base - new Date(v.startedAt).getTime() : 3 * 3600_000;
-  const fill = left == null ? 0.65 : Math.max(0, Math.min(1, left / Math.max(total, 1)));
+  // Sand = share of THIS team's time left: (deadline − now) / (deadline − start)
+  const started = v.startedAt ? new Date(v.startedAt).getTime() : null;
+  const total = end && started ? end - started : null;
+  const fill = left == null || !total ? 1 : Math.max(0, Math.min(1, left / total));
+  const running = !!end && !!started && !v.pausedAt && (left ?? 0) > 0;
+  useBroadcastSand(fill, running);                                   // header logo + every hourglass follow this
+  const heat = left == null ? "" : left < 2 * 60_000 ? "animate-pulse" : "";
   return (
     <section className="panel foil overflow-hidden p-5 sm:p-7">
-      <div className="pointer-events-none absolute inset-0 paper-grid opacity-50 [mask-image:linear-gradient(90deg,transparent,black_60%)]" />
-      <div className="relative grid items-center gap-6 lg:grid-cols-[auto_1fr_auto]">
-        <div className="flex items-center gap-5">
-          <div className="well grid h-[140px] w-[112px] place-items-center"><Hourglass fill={fill} size={80} /></div>
-          <div>
-            <p className="eyebrow">Team · Paddle <span className="num text-graphite">#{String(paddle).padStart(2, "0")}</span></p>
-            <h1 className="font-display mt-1 text-3xl font-black sm:text-4xl">{v.team?.team_name ?? "Your team"}</h1>
-            <p className="mt-1 text-sm text-muted">{v.team?.bay ? <>Stationed at <b className="text-graphite">{v.team.bay}</b></> : "Bid it · Spin it · Bingo it"}</p>
-          </div>
+      <div className="relative grid items-center gap-6 lg:grid-cols-[1fr_1.25fr_auto]">
+        <div>
+          <p className="eyebrow">Team · Paddle <span className="num text-graphite">#{String(paddle).padStart(2, "0")}</span>{v.team?.bay ? <> · {v.team.bay}</> : null}</p>
+          <h1 className="font-display mt-1 text-4xl sm:text-5xl">{v.team?.team_name ?? "Your team"}</h1>
+          <p className="mt-2 text-sm text-muted">Every power-up you earn moves your deadline once its round closes.</p>
         </div>
 
-        <div className="lcd px-5 py-4">
-          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.2em] opacity-70">
-            <span className="flex items-center gap-1.5"><Clock3 size={12} /> {v.pausedAt ? "Clock paused" : "Your hackathon ends"}</span>
-            {v.minutes !== 0 && <span className={v.minutes > 0 ? "text-ok" : "text-err"}>{fmtMins(v.minutes)}</span>}
-          </div>
-          <div className="mt-1 text-4xl font-bold tracking-tight sm:text-5xl">{left == null ? "--:--:--" : fmtClock(left)}</div>
-          <div className="mt-1 text-xs opacity-75">
-            {v.endAt ? <>Deadline <b>{fmtTime(v.endAt)}</b>{base && v.minutes !== 0 && <> · was {fmtTime(v.baseEnd)}</>}</> : "Clock starts when the organisers set it"}
+        <div className="lcd flex items-center gap-4 px-4 py-4 sm:gap-6 sm:px-6">
+          <div className="shrink-0"><Hourglass fill={fill} running={running} size={58} tone="glass" /></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[.2em] text-muted">
+              <span className="flex items-center gap-1.5"><Clock3 size={12} /> {v.pausedAt ? "Clock paused" : "Your hackathon ends"}</span>
+              {v.minutes !== 0 && <span className={v.minutes > 0 ? "text-ok" : "text-err"}>{fmtMins(v.minutes)}</span>}
+            </div>
+            <div className={`mt-1 text-4xl font-bold tracking-tight sm:text-5xl ${heat}`}>{left == null ? "--:--:--" : fmtClock(left)}</div>
+            <div className="mt-1 text-xs text-muted">
+              {v.endAt ? <>Deadline <b className="text-white">{fmtTime(v.endAt)}</b>{v.minutes !== 0 && <> · was {fmtTime(v.baseEnd)}</>}</> : "Clock starts when the organisers set it"}
+            </div>
+            {v.pendingMinutes !== 0 && (
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-sm border border-[#2E2670] px-2 py-0.5 text-[11px] text-muted">
+                <span className={v.pendingMinutes > 0 ? "text-ok" : "text-err"}>{fmtMins(v.pendingMinutes)}</span> pending · added when its round closes
+              </div>
+            )}
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-          <Readout icon={Coins} label="Points" value={v.balance.toLocaleString("en-IN")} />
+          <Readout icon={Coins} label={v.pointsProvisional ? "Points · provisional" : "Points · confirmed"} value={v.balance.toLocaleString("en-IN")} />
           <Readout icon={Trophy} label="Standing" value={v.leaderboard ? `#${v.rank} / ${v.teamCount}` : "Hidden"} />
         </div>
       </div>
@@ -175,8 +183,8 @@ function Stage({ v, a, children }: { v: TeamView; a: Activity; children: React.R
         {s.status === "closed" && (
           <div className="flex gap-3">
             <div className="well px-4 py-2 text-right"><p className="eyebrow">Closed</p><p className="num font-bold">{fmtTime(s.closed_at)}</p></div>
-            <div className="well px-4 py-2 text-right"><p className="eyebrow">Points then</p><p className="num font-bold">{s.closing_points?.toLocaleString("en-IN") ?? "—"}</p></div>
-            <div className="well px-4 py-2 text-right"><p className="eyebrow">Deadline then</p><p className="num font-bold">{fmtTime(s.closing_end_at)}</p></div>
+            <div className="well px-4 py-2 text-right"><p className="eyebrow">Points confirmed</p><p className="num font-bold">{s.closing_points?.toLocaleString("en-IN") ?? "—"}</p></div>
+            <div className="well px-4 py-2 text-right"><p className="eyebrow">Deadline at close</p><p className="num font-bold">{fmtTime(s.closing_end_at)}</p></div>
           </div>
         )}
       </div>
@@ -227,7 +235,7 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
       <div className="space-y-5">
         <div className="panel grid place-items-center p-6 text-center">
           <p className="eyebrow">Raise this when you bid</p>
-          <div className="mt-3 grid h-36 w-36 place-items-center border-2 border-graphite bg-white shadow-[6px_6px_0_#111]">
+          <div className="mt-3 grid h-36 w-36 place-items-center border-2 border-graphite bg-white shadow-[6px_6px_0_#6B4BFF]">
             <span className="font-display num text-6xl font-black">{String(paddle).padStart(2, "0")}</span>
           </div>
           <p className="mt-3 text-xs text-muted">The auctioneer records the sale. Your points update here right away.</p>
@@ -295,7 +303,7 @@ function PowerRow({ p, me }: { p: TeamView["powerups"][number]; me: string }) {
     <div className={`well flex items-center gap-3 px-3 py-2.5 ${p.used ? "opacity-55" : ""}`}>
       <div className={`grid h-9 w-9 place-items-center rounded-lg ${incoming ? "bg-ember/15 text-ember" : "bg-cobalt-wash text-cobalt-ink"}`}>{incoming ? <Swords size={16} /> : <Sparkles size={16} />}</div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{p.name} {p.used && <span className="chip ml-1">USED</span>}</p>
+        <p className="truncate text-sm font-semibold">{p.name} {p.used && <span className="chip ml-1">USED</span>}{!p.confirmed && <span className="chip ml-1" title="Counts once this round is closed">pending</span>}</p>
         <p className="truncate text-xs text-muted">{incoming ? `Played on you by ${p.from_name}` : p.target_name ? `Aimed at ${p.target_name}` : `From ${p.source}`}{p.note ? ` · ${p.note}` : ""}</p>
       </div>
       {p.minutes_delta !== 0 && <span className={`num text-sm font-bold ${(incoming || p.target_team_id) ? (incoming ? "text-err" : "text-muted") : p.minutes_delta > 0 ? "text-ok" : "text-err"}`}>{fmtMins(p.minutes_delta)}</span>}
@@ -307,8 +315,10 @@ function Loadout({ v }: { v: TeamView }) {
   const me = v.team?.id ?? "";
   // Build a deadline timeline: each time-changing event, oldest first.
   const affecting = [...v.powerups].filter(p => p.minutes_delta !== 0 && (p.target_team_id ? p.target_team_id === me : p.team_id === me)).reverse();
+  // Confirmed effects move the deadline in order; pending ones are listed after, not yet counted.
   let running = 0;
-  const steps = affecting.map(p => { running += p.minutes_delta; return { p, running, at: v.baseEnd ? new Date(new Date(v.baseEnd).getTime() + running * 60000).toISOString() : null }; });
+  const steps = affecting.filter(p => p.confirmed).map(p => { running += p.minutes_delta; return { p, running, at: v.baseEnd ? new Date(new Date(v.baseEnd).getTime() + running * 60000).toISOString() : null }; });
+  const pending = affecting.filter(p => !p.confirmed);
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <div className="panel p-5">
@@ -324,6 +334,11 @@ function Loadout({ v }: { v: TeamView }) {
               <p className="text-xs text-muted">{p.name} <span className="num">{fmtMins(p.minutes_delta)}</span></p><p className="num font-bold">{fmtTime(at)}</p></li>
           ))}
           <li><span className="absolute -left-[8px] mt-1 h-4 w-4 rounded-full border-2 border-white bg-cobalt shadow" /><p className="text-xs font-semibold text-cobalt-ink">Your deadline now</p><p className="num text-2xl font-black">{fmtTime(v.endAt)}</p></li>
+          {pending.map(p => (
+            <li key={p.id} className="opacity-70"><span className="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-dashed border-cobalt bg-white" />
+              <p className="text-xs text-muted">{p.name} <span className="num">{fmtMins(p.minutes_delta)}</span> · pending</p>
+              <p className="text-[11px] text-faint">Added when the {p.source} round closes</p></li>
+          ))}
         </ol>
       </div>
       <div className="panel overflow-hidden lg:col-span-2">

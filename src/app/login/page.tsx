@@ -66,11 +66,11 @@ function LoginForm() {
       <div className="panel relative grid w-full max-w-5xl overflow-hidden lg:grid-cols-[1.05fr_.95fr]">
         <section className="relative hidden flex-col justify-between overflow-hidden border-r border-silver/70 bg-gradient-to-b from-frost to-porcelain p-10 lg:flex">
           <div className="flex items-center gap-3">
-            <LogoGlass size={48} />
+            <LogoGlass size={52} logo />
             <div className="leading-none"><div className="font-display font-black tracking-[.16em]">DAEMON HOUR</div><div className="mt-1 text-[9px] font-semibold tracking-[.24em] text-muted">MAD CLUB · NHCE</div></div>
           </div>
           <div className="relative">
-            <div className="absolute -right-6 -top-10 opacity-90"><Hourglass fill={0.62} size={150} /></div>
+            <div className="absolute -right-6 -top-10 opacity-90"><Hourglass mode="loader" size={130} /></div>
             <p className="eyebrow">17 &amp; 18 November · Falconry Seminar Hall &amp; Idea Lab</p>
             <h1 className="font-serif mt-4 text-6xl leading-[.95]">Time is your<br /><span className="prism-text italic">currency.</span></h1>
             <p className="mt-5 max-w-xs text-sm leading-6 text-muted">A hackathon like never before. Bid it, spin it, bingo it, and watch your deadline move with every power-up you earn.</p>
@@ -80,7 +80,7 @@ function LoginForm() {
 
         <section className="flex items-center justify-center px-6 py-14 sm:px-12">
           <div className="w-full max-w-sm">
-            <div className="mb-8 flex items-center gap-3 lg:hidden"><LogoGlass size={40} /><span className="font-display font-black tracking-[.16em]">DAEMON HOUR</span></div>
+            <div className="mb-8 flex items-center gap-3 lg:hidden"><LogoGlass size={44} logo /><span className="font-display font-black tracking-[.16em]">DAEMON HOUR</span></div>
             <p className="eyebrow">Team leads only</p>
             <h2 className="font-display mt-2 text-3xl font-black">Enter the arena</h2>
             <p className="mt-2 text-sm text-muted">Sign in with your team username, e.g. <span className="num text-graphite">STRAW_HATS</span>.</p>

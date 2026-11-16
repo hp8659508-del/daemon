@@ -351,14 +351,21 @@ export async function POST(request: Request) {
         const now = new Date().toISOString();
         let snapshot: Record<string, { pts: number; end: string | null }> = {};
         if (status === "closed") {
-          const [{ data: txs }, { data: tps }, { data: s }] = await Promise.all([
+          const [{ data: txs }, { data: tps }, { data: s }, { data: st }] = await Promise.all([
             db.from("transactions").select("team_id,points").in("team_id", teamIds),
             db.from("team_powerups").select("*"),
             db.from("event_settings").select("hackathon_end_at").eq("id", true).maybeSingle(),
+            db.from("team_stages").select("team_id,activity,status"),
           ]);
+          // the rounds being closed right now count as closed for the deadline snapshot
+          const closing = new Set(teamIds.flatMap(id => acts.map(a => `${id}:${a}`)));
+          const stagesAfter = [
+            ...(st ?? []).filter(r => !closing.has(`${r.team_id}:${r.activity}`)),
+            ...[...closing].map(k => { const [team_id, activity] = k.split(":"); return { team_id, activity, status: "closed" }; }),
+          ];
           snapshot = Object.fromEntries(teamIds.map(id => [id, {
             pts: (txs ?? []).filter(t => t.team_id === id).reduce((a, t) => a + Number(t.points), 0),
-            end: projectedEnd(s?.hackathon_end_at ?? null, minutesFor(id, (tps ?? []) as TeamPowerup[])),
+            end: projectedEnd(s?.hackathon_end_at ?? null, minutesFor(id, (tps ?? []) as TeamPowerup[], stagesAfter)),
           }]));
         }
         const rows = teamIds.flatMap(team_id => acts.map(activity => ({
@@ -369,7 +376,9 @@ export async function POST(request: Request) {
           closing_end_at: status === "closed" ? snapshot[team_id].end : null,
         }))).map(r => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)));
         fail((await db.from("team_stages").upsert(rows, { onConflict: "team_id,activity" })).error);
-        await log(teamIds.map(team_id => ({ team_id, kind: "round", action: status === "live" ? "opened" : "closed", label: `${acts.join(", ")} ${status === "live" ? "opened" : "closed"}`, points: status === "closed" ? snapshot[team_id]?.pts ?? null : null })));
+        await log(teamIds.map(team_id => ({ team_id, kind: "round", action: status === "live" ? "opened" : "closed",
+          label: status === "closed" ? `${acts.join(", ")} closed · points confirmed · deadline ${snapshot[team_id]?.end ? new Date(snapshot[team_id].end as string).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "not set"}` : `${acts.join(", ")} opened`,
+          points: status === "closed" ? snapshot[team_id]?.pts ?? null : null })));
         return NextResponse.json({ ok: true, message: `${acts.join(" + ")} → ${status} for ${teamIds.length} team(s)` });
       }
       case "bay": {

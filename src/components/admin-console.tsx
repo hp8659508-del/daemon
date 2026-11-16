@@ -5,6 +5,7 @@ import { Users, Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play,
 import type { World, Activity, StageStatus, Team } from "@/lib/game";
 import { useCommand, LiveSync, StatusLed, fmtTime, fmtMins, Empty, useNow, fmtClock } from "@/components/ui";
 import BingoBoard from "@/components/bingo-board";
+import { useBroadcastSand } from "@/components/sand-clock";
 import MemberTiles from "@/components/member-tiles";
 import { HistoryFeed } from "@/components/team-arena";
 import { LETTERS } from "@/lib/bingo-shared";
@@ -40,6 +41,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
   const vkey = venueKey(scope);
   const paddle = useMemo(() => Object.fromEntries(full.teams.map((t, i) => [t.id, t.paddle ?? i + 1])), [full.teams]);
   const visibleTabs = TABS.filter(t => staff.isHost || t.key !== "staff");
+
   const stageOf = (t: string, a: Activity) => (w.stages.find(s => s.team_id === t && s.activity === a)?.status ?? "upcoming") as StageStatus;
   const ctx: Ctx = { w, full, cmd, paddle, stageOf, staff, scope, vkey };
   const liveCount = (a: Activity) => w.stages.filter(s => s.activity === a && s.status === "live").length;
@@ -110,6 +112,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
         {tab === "event" && <EventPanel {...ctx} />}
         {tab === "staff" && staff.isHost && <StaffTab {...ctx} />}
       </div>
+      <SandSync s={full.settings} />
       {cmd.toasts}
     </div>
   );
@@ -468,7 +471,7 @@ function CellEditor({ c, cmd }: { c: World["cells"][number]; cmd: Cmd }) {
   const [label, setLabel] = useState(c.label); const [pts, setPts] = useState(String(c.points));
   const dirty = label !== c.label || pts !== String(c.points);
   return (
-    <div className="flex aspect-square flex-col gap-1 border border-graphite bg-white p-1 shadow-[2px_2px_0_#111]">
+    <div className="flex aspect-square flex-col gap-1 border border-graphite bg-white p-1 shadow-[2px_2px_0_#0E0B2B]">
       <textarea className="min-h-0 flex-1 resize-none bg-frost/50 p-1 text-[10px] leading-tight outline-none" value={label} onChange={e => setLabel(e.target.value)} disabled={c.is_free} />
       <div className="flex gap-1"><input className="num w-full border border-graphite/30 px-1 text-[10px]" value={pts} onChange={e => setPts(e.target.value)} disabled={c.is_free} />
         {dirty && <button className="bg-graphite px-1.5 text-[10px] text-white" onClick={() => cmd.run({ action: "cell_save", idx: c.idx, label, points: pts })}>Save</button>}</div>
@@ -1082,4 +1085,15 @@ function Modal({ title, close, children }: { title: string; close: () => void; c
       </div>
     </div>
   );
+}
+
+/** Invisible: ticks once a second and drives every hourglass (header logo) from the official clock. */
+function SandSync({ s }: { s: World["settings"] }) {
+  const now = useNow();
+  const endMs = s.hackathon_end_at ? new Date(s.hackathon_end_at).getTime() : null;
+  const startMs = s.hackathon_started_at ? new Date(s.hackathon_started_at).getTime() : null;
+  const refMs = s.clock_paused_at ? new Date(s.clock_paused_at).getTime() : now;
+  const fill = endMs && startMs && refMs ? Math.max(0, Math.min(1, (endMs - refMs) / Math.max(1, endMs - startMs))) : 1;
+  useBroadcastSand(fill, !!endMs && !!startMs && !s.clock_paused_at && fill > 0);
+  return null;
 }

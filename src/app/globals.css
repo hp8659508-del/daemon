@@ -3,35 +3,36 @@
 @tailwind utilities;
 
 /* ============================================================================
-   DAEMON HOUR — "Swiss Instrument" on a Glass Atelier wash
-   White, precise surfaces: black hairlines, hard offset shadows, uppercase
-   grotesk, mono numerals. The poster's prism lives in one stripe per hero.
-   Background: soft cobalt / sea-glass / lilac wash from the MD Club site.
+   DAEMON HOUR — "Ultraviolet"
+   Swiss structure (hairlines, hard offset shadows, uppercase grotesk, mono
+   numerals) in one hue: ink-violet lines, violet signature, lavender-ice paper.
+   Readouts are dark violet glass with lilac digits — the hourglass glowing.
    ========================================================================== */
 :root {
   color-scheme: light;
-  --ink: #111111; --graphite: #111111; --muted: #5B5F6B; --faint: #9A9CA6;
-  --cobalt: #5878D8; --cobalt-ink: #3D5BBF; --sea: #A6D8D4; --sea-ink: #2F7F78;
-  --silver: #E2E2E2; --champagne: #E7D9BD; --brass: #B8954F; --ember: #E07A5F;
-  --ok: #1F8A5B; --err: #C23B22;
-  --prism: linear-gradient(90deg, #5878D8, #9A8CCB, #A6D8D4, #E7D9BD, #E07A5F);
-  --line: #E5E5E5; --line-2: #111111;
+  --ink: #0E0B2B; --graphite: #0E0B2B; --muted: #5E5A86; --faint: #9A96B8;
+  --violet: #6B4BFF; --violet-2: #9D85FF; --violet-soft: #E7E1FF; --violet-wash: #F4F3FF;
+  --cobalt: #6B4BFF; --cobalt-ink: #5136E0; --sea: #9D85FF; --sea-ink: #5136E0;
+  --silver: #DFDCF7; --champagne: #E7E1FF; --brass: #6B4BFF; --ember: #D6345A;
+  --ok: #14966A; --err: #D6345A;
+  --glass: #120D33; --glass-ink: #D6CCFF; --glass-line: #2E2670; --glass-glow: rgba(150,120,255,.6);
+  --prism: linear-gradient(90deg, #6B4BFF, #9D85FF);
+  --line: #DFDCF7; --line-2: #0E0B2B;
   --ease: cubic-bezier(.16,1,.3,1); --spring: cubic-bezier(.34,1.4,.64,1);
 }
 * { box-sizing: border-box; }
-html { background: #F5F6FA; }
+html { background: #ECEEFF; }
 body {
   margin: 0; color: var(--ink); font-family: "Inter Tight", "Inter", system-ui, sans-serif; min-height: 100vh;
   background:
-    radial-gradient(900px 600px at 10% 0%, #DFE6FF 0%, transparent 60%),
-    radial-gradient(800px 600px at 95% 10%, #D7F3EF 0%, transparent 55%),
-    radial-gradient(700px 500px at 60% 100%, #F3E3F6 0%, transparent 60%),
-    #F5F6FA;
+    radial-gradient(900px 600px at 8% 0%, rgba(107,75,255,.16) 0%, transparent 60%),
+    radial-gradient(800px 600px at 100% 100%, rgba(107,75,255,.08) 0%, transparent 60%),
+    #ECEEFF;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
-::selection { background: #111; color: #fff; }
+::selection { background: #6B4BFF; color: #fff; }
 .font-display { font-family: "Inter Tight", sans-serif; font-weight: 800; letter-spacing: -.035em; text-transform: uppercase; }
 /* headings that were serif are now heavy uppercase grotesk */
 .font-serif { font-family: "Inter Tight", sans-serif; font-weight: 800; letter-spacing: -.04em; text-transform: uppercase; font-style: normal !important; }
@@ -40,51 +41,55 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 @layer components {
   .panel {
-    position: relative; border-radius: 6px; border: 1px solid #111; background: #fff;
-    box-shadow: 4px 4px 0 #111; transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+    position: relative; border-radius: 6px; border: 1px solid #0E0B2B; background: #fff;
+    box-shadow: 4px 4px 0 #0E0B2B; transition: transform .18s var(--ease), box-shadow .18s var(--ease);
   }
-  .panel-tight { @apply panel; box-shadow: 3px 3px 0 #111; }
-  .well { border-radius: 4px; background: #F4F4F2; border: 1px solid #DADADA; }
+  .panel-tight { @apply panel; box-shadow: 3px 3px 0 #0E0B2B; }
+  .well { border-radius: 4px; background: #F4F3FF; border: 1px solid #DFDCF7; }
   .lcd {
-    border-radius: 4px; background: #fff; border: 1px solid #111; color: #111;
+    position: relative; overflow: hidden; border-radius: 6px; color: var(--glass-ink);
+    background: radial-gradient(120% 120% at 85% 0%, #221A5C 0%, #120D33 55%, #0B0822 100%);
+    border: 1px solid #0B0822; box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -24px 50px rgba(0,0,0,.35);
     font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; letter-spacing: -.03em;
+    text-shadow: 0 0 16px var(--glass-glow);
   }
+  .lcd .text-ok { color: #6FE3B5 !important; } .lcd .text-err { color: #FF8FA6 !important; } .lcd .text-muted { color: #9A90D6 !important; }
   .field {
     width: 100%; border-radius: 4px; padding: .7rem .9rem; font-size: .875rem; outline: none;
-    background: #fff; border: 1px solid #111; transition: box-shadow .15s;
+    background: #fff; border: 1px solid #0E0B2B; transition: box-shadow .15s;
   }
-  .field:focus { box-shadow: 3px 3px 0 #5878D8; }
+  .field:focus { box-shadow: 3px 3px 0 #6B4BFF; }
   .field::placeholder { color: var(--faint); }
   .key {
     display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
     border-radius: 4px; padding: .62rem 1rem; font-size: .8rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-    cursor: pointer; background: #fff; border: 1px solid #111; box-shadow: 3px 3px 0 #111;
+    cursor: pointer; background: #fff; border: 1px solid #0E0B2B; box-shadow: 3px 3px 0 #0E0B2B;
     transition: transform .08s, box-shadow .08s, background .15s; user-select: none; white-space: nowrap;
   }
-  .key:hover { background: #F4F4F2; }
+  .key:hover { background: #F4F3FF; }
   .key:active { transform: translate(3px,3px); box-shadow: none; }
-  .key[data-on="true"] { background: #111; color: #fff; }
+  .key[data-on="true"] { background: #0E0B2B; color: #fff; }
   .key:disabled { opacity: .4; cursor: not-allowed; transform: none; }
-  .key-primary { @apply key; background: #111; color: #fff; box-shadow: 3px 3px 0 #5878D8; }
-  .key-primary:hover { background: #222; }
+  .key-primary { @apply key; background: #6B4BFF; color: #fff; border-color: #0E0B2B; box-shadow: 3px 3px 0 #0E0B2B; }
+  .key-primary:hover { background: #5B3BF0; }
   .key-primary:active { transform: translate(3px,3px); box-shadow: none; }
   .key-danger { @apply key; color: var(--err); }
-  .key-sm { padding: .38rem .65rem; font-size: .68rem; box-shadow: 2px 2px 0 #111; }
+  .key-sm { padding: .38rem .65rem; font-size: .68rem; box-shadow: 2px 2px 0 #0E0B2B; }
   .key-lg { padding: .95rem 1.4rem; font-size: .95rem; }
-  .chip { display: inline-flex; align-items: center; gap: .35rem; border-radius: 4px; padding: .22rem .55rem; font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border: 1px solid #111; background: #fff; }
+  .chip { display: inline-flex; align-items: center; gap: .35rem; border-radius: 4px; padding: .22rem .55rem; font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border: 1px solid #0E0B2B; background: #fff; }
   .eyebrow { font-size: .66rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
   /* the single prism stripe */
-  .foil::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: var(--prism); pointer-events: none; border-radius: 0 0 5px 5px; }
-  .prism-text { color: #111; }
-  .rail { display: flex; overflow-x: auto; border: 1px solid #111; border-radius: 6px; background: #fff; box-shadow: 4px 4px 0 #111; }
-  .rail > button { flex: 1; min-width: max-content; display: flex; align-items: center; justify-content: center; gap: .5rem; padding: .8rem 1rem; font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #111; border-right: 1px solid #111; transition: background .15s; }
+  .foil::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: #6B4BFF; pointer-events: none; border-radius: 0 0 5px 5px; }
+  .prism-text { color: #6B4BFF; }
+  .rail { display: flex; overflow-x: auto; border: 1px solid #0E0B2B; border-radius: 6px; background: #fff; box-shadow: 4px 4px 0 #0E0B2B; }
+  .rail > button { flex: 1; min-width: max-content; display: flex; align-items: center; justify-content: center; gap: .5rem; padding: .8rem 1rem; font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #0E0B2B; border-right: 1px solid #0E0B2B; transition: background .15s; }
   .rail > button:last-child { border-right: 0; }
-  .rail > button:hover { background: #F4F4F2; }
-  .rail > button[aria-selected="true"] { background: #111; color: #fff; }
+  .rail > button:hover { background: #F4F3FF; }
+  .rail > button[aria-selected="true"] { background: #0E0B2B; color: #fff; }
   .led { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
-  .led-live { background: #1F8A5B; box-shadow: 0 0 0 3px rgba(31,138,91,.18); animation: pulse 1.6s ease-in-out infinite; }
-  .led-closed { background: #9A9CA6; }
-  .led-upcoming { background: #D9A22B; }
+  .led-live { background: #14966A; box-shadow: 0 0 0 3px rgba(20,150,106,.18); animation: pulse 1.6s ease-in-out infinite; }
+  .led-closed { background: #B9B5D3; }
+  .led-upcoming { background: #9D85FF; }
   .table-row { border-top: 1px solid var(--line); }
 }
 
@@ -104,3 +109,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .strike-h { transform-origin: left; animation: strikeH .4s cubic-bezier(.16,1,.3,1) both; }
 @keyframes strikeV { from { transform: translateX(-50%) scaleY(0); } to { transform: translateX(-50%) scaleY(1); } }
 @keyframes strikeH { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ---------- sand clock ---------- */
+.sand-stream { animation: sandfall .45s linear infinite; }
+@keyframes sandfall { to { stroke-dashoffset: -11; } }
+.sand-flip { animation: sandflip .75s cubic-bezier(.65,0,.35,1); }
+@keyframes sandflip { 0% { transform: rotate(0); } 50% { transform: rotate(180deg) scale(1.06); } 100% { transform: rotate(360deg); } }
+
+/* ---------- first-open splash ---------- */
+#dh-splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background:
+  radial-gradient(700px 500px at 50% 40%, rgba(107,75,255,.18), transparent 70%), #ECEEFF; transition: opacity .55s ease, background-color .55s ease; }
+#dh-splash.leaving { opacity: 0; pointer-events: none; }
+#dh-splash .dh-mark { position: fixed; transition: left .75s cubic-bezier(.65,0,.35,1), top .75s cubic-bezier(.65,0,.35,1), transform .75s cubic-bezier(.65,0,.35,1); }
+#dh-splash .dh-word { font: 900 28px "Inter Tight", sans-serif; letter-spacing: .12em; color: #0E0B2B; text-align: center; margin-top: 18px; transition: opacity .3s; }
+#dh-splash .dh-word small { display: block; font: 700 10px Inter, sans-serif; letter-spacing: .3em; color: #5E5A86; margin-top: 6px; }
+html.dh-seen #dh-splash { display: none; }
