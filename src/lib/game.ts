@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { CardKind, CardEffect } from "@/lib/cards";
+import { buildLedger } from "@/lib/ledger";
 
 export type Activity = "auction" | "spin" | "bingo";
 export type StageStatus = "upcoming" | "live" | "closed";
@@ -103,8 +104,8 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
     db.from("purchases").select("id,team_id,item_id,purchase_price,created_at").order("created_at", { ascending: false }),
-    tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(300)
-        : db.from("transactions").select("id,team_id,description,points,created_at").order("created_at", { ascending: false }).limit(1000),
+    tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(3000)
+        : allTransactions(db),
     db.from("bingo_cells").select("*").order("idx"),
     own(db.from("team_bingo").select("team_id,idx,marked_at")),
     db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
@@ -192,7 +193,7 @@ export function teamSlice(w: World, teamId: string) {
     lineBonus: w.settings.bingo_line_bonus,
     broadcast: [w.settings.broadcasts?.all, team?.bay ? w.settings.broadcasts?.[team.bay] : null, w.settings.broadcast].filter(Boolean).join("   ◆   ") || null,
     liveLot: lotVisible && lot ? { ...lot, item: w.items.find(i => i.id === lot.item_id) ?? null, sold: w.purchases.filter(p => p.item_id === lot.item_id).length } : null,
-    ledger: w.ledger.filter(l => l.team_id === teamId),
+    ledger: buildLedger(teamId, w.txs, w.teamPowerups, w.cards),
     catalogue: w.items.filter(i => i.is_active && i.pool !== "spin").map(i => {
       const pu = w.powerups.find(p => p.id === i.powerup_id);
       return { ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, mine: w.purchases.filter(p => p.item_id === i.id && p.team_id === teamId).length,
