@@ -1,8 +1,11 @@
 -- ============================================================================
 -- DAEMON HOUR · the 17 auction cards (optional). Run AFTER ui_v9_cards.sql.
--- Adds each card only if a card with that name doesn't exist yet.
--- Opening price 50 / step 10 / no min-max: edit prices in Auction → Cards.
+-- REPLACES the catalogue with exactly these 17 slots.
+-- Old lots that were never sold are removed; anything already sold is kept.
+-- Opening price 50 / step 10 / no min-max: edit prices in Auction → Cards (pencil).
 -- ============================================================================
+delete from public.auction_items i where not exists (select 1 from public.purchases p where p.item_id = i.id);
+
 insert into public.auction_items (item_name, description, kind, effect, base_points, price_step, quantity, is_active)
 select v.name, v.descr, v.kind, v.effect::jsonb, 50, 10, 1, true
 from (values

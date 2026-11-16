@@ -17,7 +17,6 @@ type Tab = "stages" | "cards" | "auction" | "spin" | "bingo" | "points" | "power
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "stages", label: "Rounds", icon: Layers },
   { key: "auction", label: "Auction", icon: Gavel },
-  { key: "cards", label: "Cards & eval", icon: ScrollText },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
   { key: "points", label: "Points", icon: Coins },
@@ -105,7 +104,6 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
       <div key={tab} className="animate-rise">
         {tab === "stages" && <Stages {...ctx} />}
         {tab === "auction" && <Auction {...ctx} />}
-        {tab === "cards" && <CardsTab {...ctx} />}
         {tab === "spin" && <Spin {...ctx} />}
         {tab === "bingo" && <Bingo {...ctx} />}
         {tab === "points" && <Points {...ctx} />}
@@ -281,15 +279,11 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
           {items.length === 0 && <Empty title="No lots">Create the first one.</Empty>}
           {items.map(i => { const s = soldOf(i.id); const by = buyersOf(i.id); return (
             <div key={i.id} className={`flex items-center gap-1 ${i.is_active ? "" : "opacity-50"}`}>
-              <button className="key key-sm min-w-0 flex-1 justify-start" data-on={itemId === i.id} onClick={() => choose(i.id)} title={effectText(i.kind, i.effect)}>
-                <span className="w-11 shrink-0 text-left text-[9px] font-bold uppercase tracking-wider text-faint">{kindLabel(i.kind)}</span>
+              <button className="key key-sm min-w-0 flex-1 !justify-start !normal-case !tracking-normal" data-on={itemId === i.id} onClick={() => choose(i.id)} title={effectText(i.kind, i.effect)}>
                 <span className="min-w-0 flex-1 truncate text-left">{i.item_name}</span>
-                {s >= i.quantity ? <span className="max-w-[80px] truncate text-[10px] font-bold text-ok">{by.join(", ")}</span> : <span className="num text-faint">open</span>}
+                {s >= i.quantity ? <span className="max-w-[90px] shrink-0 truncate text-[10px] font-bold text-ok">{by.join(", ")}</span> : null}
               </button>
-              <button className="key key-sm" title="Edit" onClick={() => setEditing(i)}><Pencil size={12} /></button>
-              <button className="key key-sm" title="Copy — opens another slot of this card" onClick={() => cmd.run({ action: "item_copy", id: i.id })}><Copy size={12} /></button>
-              <button className="key key-sm" title={i.is_active ? "Hide from teams" : "Show to teams"} onClick={() => cmd.run({ action: "item_toggle", id: i.id, is_active: !i.is_active })}>{i.is_active ? <Eye size={12} /> : <EyeOff size={12} />}</button>
-              <button className="key key-sm" title="Delete card" onClick={() => confirm(s ? `Delete "${i.item_name}"? It was bought by ${by.join(", ")}. The sale is voided: points refunded and its effects undone.` : `Delete "${i.item_name}"?`) && cmd.run({ action: "item_delete", id: i.id })}><Trash2 size={12} /></button>
+              <button className="key key-sm" title="Edit / copy / delete" onClick={() => setEditing(i)}><Pencil size={12} /></button>
             </div>); })}
         </div>
       </div>
@@ -385,7 +379,14 @@ function ItemEditor({ cmd, item, close }: { w: World; cmd: Cmd; item: Partial<Wo
         <L t="Minimum"><input className="field num" type="number" value={f.min_price} onChange={up("min_price")} placeholder="none" /></L>
         <L t="Maximum"><input className="field num" type="number" value={f.max_price} onChange={up("max_price")} placeholder="none" /></L>
         <p className="text-xs text-faint sm:col-span-2">Each card sells once. Use <b>Copy</b> in the list to open another slot of it.</p>
-        <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="key" onClick={close}>Cancel</button><button className="key-primary" disabled={cmd.busy}>Save card</button></div>
+        <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
+          {item.id && <>
+            <button type="button" className="key key-sm mr-auto" title="Open another slot of this card" onClick={async () => { if (await cmd.run({ action: "item_copy", id: item.id })) close(); }}><Copy size={12} /> Copy slot</button>
+            <button type="button" className="key key-sm" onClick={async () => { if (await cmd.run({ action: "item_toggle", id: item.id, is_active: !item.is_active })) close(); }}>{item.is_active ? <><EyeOff size={12} /> Hide</> : <><Eye size={12} /> Show</>}</button>
+            <button type="button" className="key-danger key-sm" onClick={async () => { if (confirm(`Delete "${item.item_name}"? If it was sold, the sale is voided and points refunded.`) && await cmd.run({ action: "item_delete", id: item.id })) close(); }}><Trash2 size={12} /> Delete</button>
+          </>}
+          <button type="button" className="key" onClick={close}>Cancel</button><button className="key-primary" disabled={cmd.busy}>Save card</button>
+        </div>
       </form>
     </Modal>
   );
@@ -393,46 +394,6 @@ function ItemEditor({ cmd, item, close }: { w: World; cmd: Cmd; item: Partial<Wo
 
 /* ============================ CARDS & EVAL ============================ */
 const STATUS_TONE: Record<string, string> = { applied: "text-ok", held: "text-cobalt-ink", spent: "text-faint line-through", pending: "text-err", resolved: "text-faint" };
-function CardsTab({ w, full, cmd, paddle }: Ctx) {
-  const [phase, setPhase] = useState<string>("all");
-  const [q, setQ] = useState("");
-  const [pen, setPen] = useState({ team: "", minutes: "", points: "", reason: "" });
-  const teams = w.teams.filter(t => !q || `${t.team_name} ${paddle[t.id]}`.toLowerCase().includes(q.toLowerCase()));
-  const match = (c: World["cards"][number]) => phase === "all" || (phase === "auto" ? ["time", "points", "bingo"].includes(c.kind) : c.kind === "note" && (c.effect?.phase ?? "other") === phase) || (phase === "trump" && c.kind === "trump");
-  const issue = async () => {
-    if (!pen.team || !pen.reason.trim() || (!Number(pen.minutes) && !Number(pen.points))) { cmd.toast("Pick a team, a reason and minutes or points"); return; }
-    if (await cmd.run({ action: "penalty", team_id: pen.team, minutes: Number(pen.minutes) || 0, points: Number(pen.points) || 0, reason: pen.reason })) setPen({ team: "", minutes: "", points: "", reason: "" });
-  };
-  return (
-    <div className="space-y-5">
-      <div className="panel flex flex-wrap items-center gap-2 p-3">
-        <span className="eyebrow mr-1">Show</span>
-        {[["all", "Everything"], ["auto", "Time · points · bingo"], ...PHASES.map(p => [p.key, p.label]), ["trump", "Trump"]].map(([k, l]) => <button key={k} className="key key-sm" data-on={phase === k} onClick={() => setPhase(k)}>{l}</button>)}
-        <div className="relative ml-auto"><Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-faint" /><input className="field !py-1.5 pl-7 text-sm" placeholder="Find team" value={q} onChange={e => setQ(e.target.value)} /></div>
-        <a className="key key-sm" href="/api/export" download><FileDown size={13} /> Spreadsheet</a>
-        <a className="key key-sm" href="/dashboard/eval" target="_blank" rel="noreferrer"><Printer size={13} /> Print / PDF</a>
-      </div>
-
-      <div className="panel p-4">
-        <h3 className="font-display mb-3 font-bold">Issue a penalty</h3>
-        <div className="grid gap-2 md:grid-cols-[1.2fr_90px_90px_2fr_auto]">
-          <select className="field" value={pen.team} onChange={e => setPen({ ...pen, team: e.target.value })}><option value="">Team…</option>{w.teams.map(t => <option key={t.id} value={t.id}>#{paddle[t.id]} {t.team_name}</option>)}</select>
-          <input className="field num" type="number" min={0} placeholder="− min" value={pen.minutes} onChange={e => setPen({ ...pen, minutes: e.target.value })} />
-          <input className="field num" type="number" min={0} placeholder="− pts" value={pen.points} onChange={e => setPen({ ...pen, points: e.target.value })} />
-          <input className="field" placeholder="Reason (shown to the team)" value={pen.reason} onChange={e => setPen({ ...pen, reason: e.target.value })} />
-          <button className="key-primary" disabled={cmd.busy} onClick={issue}>Penalise</button>
-        </div>
-        <p className="mt-2 text-xs text-faint">A held <b>No penalties</b> card blocks it. A held <b>Pass penalties</b> card sends it to the next team in the venue by team number; if that team holds No penalties, it is skipped. Each card works once.</p>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {teams.length === 0 && <Empty title="No teams">Nothing matches.</Empty>}
-        {teams.map(t => <TeamCards key={t.id} t={t} w={w} full={full} cmd={cmd} paddle={paddle} match={match} />)}
-      </div>
-    </div>
-  );
-}
-
 function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full: World; cmd: Cmd; paddle: Record<string, number>; match: (c: World["cards"][number]) => boolean }) {
   const cards = w.cards.filter(c => c.team_id === t.id);
   const shown = cards.filter(match);
@@ -479,6 +440,25 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function DrawerCards({ t, w, cmd, paddle }: { t: Team; w: World; cmd: Cmd; paddle: Record<string, number> }) {
+  const [pen, setPen] = useState({ minutes: "", points: "", reason: "" });
+  const issue = async () => {
+    if (!pen.reason.trim() || (!Number(pen.minutes) && !Number(pen.points))) { cmd.toast("Enter minutes or points and a reason"); return; }
+    if (await cmd.run({ action: "penalty", team_id: t.id, minutes: Number(pen.minutes) || 0, points: Number(pen.points) || 0, reason: pen.reason })) setPen({ minutes: "", points: "", reason: "" });
+  };
+  return (
+    <div className="mt-5">
+      <TeamCards t={t} w={w} full={w} cmd={cmd} paddle={paddle} match={() => true} />
+      <div className="mt-2 flex flex-wrap gap-2">
+        <input className="field !w-20 num !py-1.5" type="number" min={0} placeholder="− min" value={pen.minutes} onChange={e => setPen({ ...pen, minutes: e.target.value })} />
+        <input className="field !w-20 num !py-1.5" type="number" min={0} placeholder="− pts" value={pen.points} onChange={e => setPen({ ...pen, points: e.target.value })} />
+        <input className="field min-w-[160px] flex-1 !py-1.5" placeholder="Penalty reason" value={pen.reason} onChange={e => setPen({ ...pen, reason: e.target.value })} />
+        <button className="key key-sm" disabled={cmd.busy} onClick={issue}>Give penalty</button>
+      </div>
     </div>
   );
 }
@@ -938,6 +918,8 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
       <div className="panel overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-graphite p-4">
           <div className="relative min-w-[200px] flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" /><input className="field pl-9" placeholder="Search team, username or paddle" value={q} onChange={e => setQ(e.target.value)} /></div>
+          <a className="key key-sm" href="/api/export" download title="Every team's cards, problem statement and penalties"><FileDown size={13} /> Eval spreadsheet</a>
+          <a className="key key-sm" href="/dashboard/eval" target="_blank" rel="noreferrer"><Printer size={13} /> Eval PDF</a>
           <div className="flex items-center gap-1">
             <button className="key key-sm" data-on={pwFilter === "all"} onClick={() => setPwFilter("all")}>All ({w.teams.length})</button>
             <button className="key key-sm" data-on={pwFilter === "default"} onClick={() => setPwFilter("default")} title="Teams still using default password">Default ({defaultCount})</button>
@@ -1064,6 +1046,8 @@ function TeamDrawer({ w, cmd, paddle, stageOf, staff, teamId, secret, close, onD
           <div className="panel-tight p-3"><p className="eyebrow">Power-ups</p><p className="num text-2xl font-bold">{tps.filter(p => p.team_id === t.id).length}</p></div>
           <div className="panel-tight p-3"><p className="eyebrow">Bingo</p><p className="num text-2xl font-bold">{w.marks.filter(m => m.team_id === t.id).length}/24</p></div>
         </div>
+
+        <DrawerCards t={t} w={w} cmd={cmd} paddle={paddle} />
 
         <div className="panel mt-5 flex flex-wrap items-center gap-3 p-4">
           <KeyRound size={16} />
