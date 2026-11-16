@@ -1,11 +1,31 @@
 
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ShieldCheck } from "lucide-react";
-import { Hourglass, LogoGlass } from "@/components/ui";
+import { LogoGlass } from "@/components/ui";
+import SandClock from "@/components/sand-clock";
+
+// Opening bell, shown on the T-MINUS readout until it passes.
+const EVENT_START = new Date("2026-11-17T09:00:00+05:30");
+
+function useTMinus() {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  if (now === null) return "--:--:--";
+  const s = Math.floor((EVENT_START.getTime() - now) / 1000);
+  if (s <= 0) return "LIVE";
+  const p = (v: number) => String(v).padStart(2, "0");
+  return `${p(Math.floor(s / 3600))}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}`;
+}
+
+function useOnline() {
+  const [on, setOn] = useState(true);
+  useEffect(() => { setOn(navigator.onLine); const u = () => setOn(true), d = () => setOn(false); addEventListener("online", u); addEventListener("offline", d); return () => { removeEventListener("online", u); removeEventListener("offline", d); }; }, []);
+  return on;
+}
 
 function getLoginEmail(identifier: string) {
   const value = identifier.trim();
@@ -60,49 +80,58 @@ function LoginForm() {
     }
   }
 
+  const tminus = useTMinus();
+  const online = useOnline();
+  const screws = ["left-3 top-3", "right-3 top-3", "left-3 bottom-3", "right-3 bottom-3"];
+
   return (
-    <main className="relative grid min-h-screen place-items-center overflow-hidden p-4 sm:p-8">
-      <div className="paper-grid pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
-      <div className="panel relative grid w-full max-w-5xl overflow-hidden lg:grid-cols-[1.05fr_.95fr]">
-        <section className="relative hidden flex-col justify-between overflow-hidden border-r border-silver/70 bg-gradient-to-b from-frost to-porcelain p-10 lg:flex">
-          <div className="flex items-center gap-3">
-            <LogoGlass size={52} logo />
-            <div className="leading-none"><div className="font-display font-black tracking-[.16em]">DAEMON HOUR</div><div className="mt-1 text-[9px] font-semibold tracking-[.24em] text-muted">MAD CLUB · NHCE</div></div>
+    <main className="dh-desk grid min-h-screen place-items-center p-4 sm:p-8">
+      <div className="dh-device w-full max-w-[980px]">
+        <div className="dh-face grid lg:grid-cols-[300px_1fr]">
+          {screws.map(c => <span key={c} className={`dh-screw ${c}`} />)}
+
+          <div className="dh-window m-5 lg:m-7">
+            <SandClock mode="loader" drainMs={13000} size={150} tone="glass" title="Daemon Hour sand clock" />
+            <small>DH · MODEL 17/18</small>
           </div>
-          <div className="relative">
-            <div className="absolute -right-6 -top-10 opacity-90"><Hourglass mode="loader" size={130} /></div>
-            <p className="eyebrow">17 &amp; 18 November · Falconry Seminar Hall &amp; Idea Lab</p>
-            <h1 className="font-serif mt-4 text-6xl leading-[.95]">Time is your<br /><span className="prism-text italic">currency.</span></h1>
-            <p className="mt-5 max-w-xs text-sm leading-6 text-muted">A hackathon like never before. Bid it, spin it, bingo it, and watch your deadline move with every power-up you earn.</p>
-          </div>
-          <div className="flex gap-2">{["Bid it", "Spin it", "Bingo it"].map(t => <span key={t} className="chip">{t}</span>)}</div>
-        </section>
 
-        <section className="flex items-center justify-center px-6 py-14 sm:px-12">
-          <div className="w-full max-w-sm">
-            <div className="mb-8 flex items-center gap-3 lg:hidden"><LogoGlass size={44} logo /><span className="font-display font-black tracking-[.16em]">DAEMON HOUR</span></div>
-            <p className="eyebrow">Team leads only</p>
-            <h2 className="font-display mt-2 text-3xl font-black">Enter the arena</h2>
-            <p className="mt-2 text-sm text-muted">Sign in with your team username, e.g. <span className="num text-graphite">STRAW_HATS</span>.</p>
+          <div className="relative px-6 pb-8 sm:px-10 lg:py-8 lg:pl-2 lg:pr-10">
+            <div className="flex items-center gap-3">
+              <LogoGlass size={40} logo />
+              <div className="leading-none">
+                <div className="text-[10px] font-bold uppercase tracking-[.2em] text-[#55516a]">MAD Club · NHCE</div>
+                <h1 className="font-display mt-1 text-[32px] font-extrabold tracking-[-.02em] text-[#22202c]">DAEMON HOUR</h1>
+              </div>
+            </div>
 
-            {search.get("error") === "profile" && <p className="well mt-5 p-3 text-sm text-err">Your login exists but isn&apos;t linked to a team. Ask an organiser.</p>}
-            {error && <p role="alert" className="well mt-5 p-3 text-sm text-err">{error}</p>}
+            <div className="dh-readout mt-5">
+              <span>{tminus === "LIVE" ? "STATUS" : "T-MINUS"}</span>
+              <b>{tminus}</b>
+            </div>
 
-            <form onSubmit={signIn} className="mt-7 space-y-4">
-              <label className="block text-xs font-semibold text-muted">Team username
-                <input className="field num mt-1.5 uppercase" type="text" autoComplete="username" autoCapitalize="characters" spellCheck={false} required value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder="TEAM_NAME" />
-              </label>
-              <label className="block text-xs font-semibold text-muted">Password
-                <div className="relative mt-1.5">
-                  <input className="field pr-16" type={show ? "text" : "password"} autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-                  <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-[11px] font-semibold text-cobalt-ink">{show ? "Hide" : "Show"}</button>
-                </div>
-              </label>
-              <button className="key-primary key-lg w-full" disabled={busy} type="submit">{busy ? "Checking the clock…" : "Enter Daemon Hour"}</button>
+            {search.get("error") === "profile" && <p className="dh-alert mt-4">Your login exists but isn&apos;t linked to a team. Ask an organiser.</p>}
+            {error && <p role="alert" className="dh-alert mt-4">{error}</p>}
+
+            <form onSubmit={signIn} className="mt-2">
+              <label className="dh-lbl" htmlFor="dh-id">Team ID</label>
+              <input id="dh-id" className="dh-input uppercase" type="text" autoComplete="username" autoCapitalize="characters" spellCheck={false} required value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder="STRAW_HATS" />
+              <label className="dh-lbl" htmlFor="dh-pw">Access code</label>
+              <div className="relative">
+                <input id="dh-pw" className="dh-input pr-16" type={show ? "text" : "password"} autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+                <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold tracking-[.12em] text-[#5136E0]">{show ? "HIDE" : "SHOW"}</button>
+              </div>
+              <button className="dh-key mt-6" disabled={busy} type="submit">{busy ? "CHECKING THE CLOCK…" : "ENGAGE"}</button>
             </form>
-            <p className="mt-6 flex items-center justify-center gap-2 text-[11px] text-faint"><ShieldCheck size={13} /> Organisers sign in with their email</p>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="dh-leds">
+                <span className={online ? "" : "off"}><i />{online ? "ONLINE" : "OFFLINE"}</span>
+                <span className={busy ? "" : "off"}><i />AUTH</span>
+              </div>
+              <p className="flex items-center gap-1.5 text-[11px] text-[#55516a]"><ShieldCheck size={13} /> Organisers sign in with their email</p>
+            </div>
           </div>
-        </section>
+        </div>
       </div>
     </main>
   );

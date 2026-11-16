@@ -116,11 +116,54 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sand-flip { animation: sandflip .75s cubic-bezier(.65,0,.35,1); }
 @keyframes sandflip { 0% { transform: rotate(0); } 50% { transform: rotate(180deg) scale(1.06); } 100% { transform: rotate(360deg); } }
 
-/* ---------- first-open splash ---------- */
-#dh-splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background:
-  radial-gradient(700px 500px at 50% 40%, rgba(107,75,255,.18), transparent 70%), #ECEEFF; transition: opacity .55s ease, background-color .55s ease; }
-#dh-splash.leaving { opacity: 0; pointer-events: none; }
-#dh-splash .dh-mark { position: fixed; transition: left .75s cubic-bezier(.65,0,.35,1), top .75s cubic-bezier(.65,0,.35,1), transform .75s cubic-bezier(.65,0,.35,1); }
-#dh-splash .dh-word { font: 900 28px "Inter Tight", sans-serif; letter-spacing: .12em; color: #0E0B2B; text-align: center; margin-top: 18px; transition: opacity .3s; }
-#dh-splash .dh-word small { display: block; font: 700 10px Inter, sans-serif; letter-spacing: .3em; color: #5E5A86; margin-top: 6px; }
+/* ---------- first-open splash (dark, radiant, continuous) ---------- */
+#dh-splash { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+#dh-splash .dh-veil { position: absolute; inset: 0; background: #07061A; }
+#dh-splash .dh-stage { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; will-change: transform; opacity: 0; }
+#dh-splash .dh-title { position: absolute; left: 50%; top: calc(46% + 150px); transform: translateX(-50%); text-align: center; white-space: nowrap; color: #E8E2FF; }
+#dh-splash .dh-title b { display: block; font: 900 30px "Inter Tight", sans-serif; letter-spacing: .5em; text-transform: uppercase; opacity: 0; text-shadow: 0 0 22px rgba(160,140,255,.7); transition: opacity .9s, letter-spacing 1.4s cubic-bezier(.16,1,.3,1); }
+#dh-splash .dh-title small { display: block; font: 700 10px Inter, sans-serif; letter-spacing: .34em; color: #9A90D6; margin-top: 8px; opacity: 0; transition: opacity .9s .25s; }
+#dh-splash .dh-title[data-state="on"] b { opacity: 1; letter-spacing: .14em; }
+#dh-splash .dh-title[data-state="on"] small { opacity: 1; }
+#dh-splash .dh-title[data-state="off"] b, #dh-splash .dh-title[data-state="off"] small { opacity: 0; transition: opacity .35s; }
 html.dh-seen #dh-splash { display: none; }
+/* while the intro plays, the header text waits; the logo slot stays reserved */
+html.dh-intro header .dh-brand-text { opacity: 0; transform: translateX(-8px); }
+header .dh-brand-text { transition: opacity .6s, transform .6s; }
+/* the one shine on the logo after landing */
+[data-dh-logo] { position: relative; overflow: hidden; }
+[data-dh-logo].dh-shine::after { content: ""; position: absolute; inset: -20% -60%; background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.95) 50%, transparent 60%); animation: dhshine .8s ease-out; }
+@keyframes dhshine { from { transform: translateX(-60%); } to { transform: translateX(60%); } }
+/* motion: staggered panel entrance, tab indicator, number roll */
+@media (prefers-reduced-motion: no-preference) {
+  main > * { animation: dhrise .6s cubic-bezier(.16,1,.3,1) both; }
+  main > *:nth-child(2) { animation-delay: .06s; } main > *:nth-child(3) { animation-delay: .12s; } main > *:nth-child(4) { animation-delay: .18s; }
+  .lcd { transition: box-shadow .6s; }
+  .tabular-nums { transition: color .4s; }
+}
+@keyframes dhrise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- login: the Daemon Hour instrument ---------- */
+.dh-desk { background: radial-gradient(70% 60% at 50% 40%, #1c1a28, #0c0b12); }
+.dh-device { border-radius: 22px; padding: 14px; background: linear-gradient(#3a3846, #1d1b26); box-shadow: inset 0 1px 0 #ffffff22, 0 40px 80px #000a; animation: dhrise .8s cubic-bezier(.16,1,.3,1) both; }
+.dh-face { position: relative; border-radius: 12px; background: linear-gradient(180deg, #dcd9e3, #b9b5c4); box-shadow: inset 0 1px 0 #fff, inset 0 -2px 0 #0002; }
+.dh-face::before { content: ""; position: absolute; inset: 0; border-radius: 12px; background: repeating-linear-gradient(90deg, #ffffff12 0 1px, transparent 1px 3px); pointer-events: none; }
+.dh-screw { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #eee, #777); box-shadow: inset 0 0 0 1px #0004; }
+.dh-screw::after { content: ""; position: absolute; left: 1px; right: 1px; top: 4px; height: 1px; background: #444; transform: rotate(35deg); }
+.dh-window { position: relative; display: grid; place-items: center; min-height: 300px; padding: 26px 0 34px; border-radius: 10px; background: #0b0a12; box-shadow: inset 0 3px 12px #000, 0 1px 0 #fff; overflow: hidden; }
+.dh-window::after { content: ""; position: absolute; inset: 0; background: linear-gradient(140deg, #ffffff12, transparent 40%); pointer-events: none; }
+.dh-window small { position: absolute; bottom: 12px; font: 500 9px "JetBrains Mono", monospace; letter-spacing: .2em; color: #6e6a88; }
+.dh-readout { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 6px; background: #1b1830; box-shadow: inset 0 2px 6px #000; font: 500 12px "JetBrains Mono", monospace; letter-spacing: .1em; color: #b9a8ff; }
+.dh-readout b { font-size: 24px; letter-spacing: .06em; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px #9d85ff88; }
+.dh-lbl { display: block; margin: 18px 0 7px; font: 700 10px Inter, sans-serif; letter-spacing: .2em; text-transform: uppercase; color: #55516a; }
+.dh-input { width: 100%; padding: 13px 14px; border: 0; border-radius: 7px; background: #f4f3f8; box-shadow: inset 0 2px 3px #0003, 0 1px 0 #fff; font: 500 15px "JetBrains Mono", monospace; color: #22202c; outline: 0; transition: box-shadow .2s; }
+.dh-input::placeholder { color: #9b97ad; }
+.dh-input:focus { box-shadow: inset 0 2px 3px #0003, 0 0 0 2px #6B4BFF; }
+.dh-key { width: 100%; padding: 15px; border: 0; border-radius: 9px; background: linear-gradient(#7a5cff, #5136e0); color: #fff; font: 700 14px Inter, sans-serif; letter-spacing: .1em; box-shadow: 0 4px 0 #34209a, 0 6px 12px #0004, inset 0 1px 0 #ffffff55; cursor: pointer; transition: transform .08s, box-shadow .08s; }
+.dh-key:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 #34209a, inset 0 1px 0 #ffffff55; }
+.dh-key:disabled { opacity: .75; cursor: progress; }
+.dh-alert { padding: 10px 12px; border-radius: 7px; background: #2a0f1a; color: #ffb3c4; font-size: 13px; box-shadow: inset 0 2px 4px #0006; }
+.dh-leds { display: flex; gap: 14px; font: 600 9px Inter, sans-serif; letter-spacing: .16em; color: #55516a; }
+.dh-leds i { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.dh-leds .off i { background: #8a8796; box-shadow: none; }
+@media (max-width: 1023px) { .dh-window { min-height: 240px; } }

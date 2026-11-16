@@ -20,7 +20,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-4 px-4 sm:px-6">
           <Link href="/dashboard" className="flex items-center gap-3">
             <LogoGlass size={46} logo />
-            <div className="leading-none">
+            <div className="dh-brand-text leading-none">
               <div className="font-display text-[17px] tracking-[.06em]">DAEMON HOUR</div>
               <div className="mt-1 text-[9px] font-semibold tracking-[.24em] text-muted">BID IT · SPIN IT · BINGO IT</div>
             </div>
