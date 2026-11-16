@@ -12,7 +12,8 @@ export const ACTIVITIES: { key: Activity; label: string; verb: string }[] = [
 
 export type Stage = { team_id: string; activity: Activity; status: StageStatus; opened_at: string | null; closed_at: string | null; closing_points: number | null; closing_end_at: string | null };
 export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null; problem_statement: string | null; ps_locked: boolean };
-export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean; kind: CardKind; effect: CardEffect };
+export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean; kind: CardKind; effect: CardEffect; pool: "auction" | "spin" };
+export type LedgerRow = { id: string; team_id: string; round: "auction" | "spin" | "bingo" | "penalty"; label: string; card_id: string | null; points_before: number; points_after: number; minutes_before: number; minutes_after: number; created_at: string };
 export type TeamCard = { id: string; team_id: string; purchase_id: string | null; item_id: string | null; name: string; kind: CardKind; effect: CardEffect; source: string; status: string; detail: string | null; spent_at: string | null; created_at: string };
 export type Penalty = { id: string; team_id: string; landed_team_id: string | null; minutes: number; points: number; reason: string; outcome: string; detail: string | null; created_at: string };
 export type Powerup = { id: string; name: string; description: string | null; minutes_delta: number; targets_rival: boolean; color: string; is_active: boolean };
@@ -94,10 +95,10 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
   const tid = opts.teamId;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
-  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal, cards, pens] = await Promise.all([
+  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal, cards, pens, ledger] = await Promise.all([
     db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
     db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
-    db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,created_at").order("created_at"),
+    db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,pool,created_at").order("created_at"),
     db.from("powerups").select("*").order("created_at"),
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
@@ -114,9 +115,10 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     own(db.from("team_cards").select("id,team_id,purchase_id,item_id,name,kind,effect,source,status,detail,spent_at,created_at")).order("created_at"),
     tid ? db.from("penalties").select("*").or(`team_id.eq.${tid},landed_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("penalties").select("*").order("created_at", { ascending: false }),
+    own(db.from("team_ledger").select("*")).order("created_at"),
   ]);
-  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, cards, pens].find(r => r.error)?.error;
-  if (firstError) throw new Error(firstError.message + " — run supabase/ui_v9_cards.sql (after ALL_IN_ONE.sql) in the Supabase SQL editor");
+  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, cards, pens, ledger].find(r => r.error)?.error;
+  if (firstError) throw new Error(firstError.message + " — run supabase/ui_v10_spin_ledger.sql (after ui_v9_cards.sql) in the Supabase SQL editor");
 
   const balances: Record<string, number> = {};
   if (!bal.error && Array.isArray(bal.data)) {
@@ -144,6 +146,7 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     balances,
     cards: (cards.data ?? []) as TeamCard[],
     penalties: (pens.data ?? []) as Penalty[],
+    ledger: (ledger.data ?? []) as LedgerRow[],
     /** Every sale in every venue (lots are shared, so 'sold' must count all of them). */
     lotSales: ((purchases.data ?? []) as Purchase[]).map(p => ({ item_id: p.item_id, team_id: p.team_id, team_name: ((teams.data ?? []) as Team[]).find(t => t.id === p.team_id)?.team_name ?? "Team" })),
   };
@@ -189,7 +192,8 @@ export function teamSlice(w: World, teamId: string) {
     lineBonus: w.settings.bingo_line_bonus,
     broadcast: [w.settings.broadcasts?.all, team?.bay ? w.settings.broadcasts?.[team.bay] : null, w.settings.broadcast].filter(Boolean).join("   ◆   ") || null,
     liveLot: lotVisible && lot ? { ...lot, item: w.items.find(i => i.id === lot.item_id) ?? null, sold: w.purchases.filter(p => p.item_id === lot.item_id).length } : null,
-    catalogue: w.items.filter(i => i.is_active).map(i => {
+    ledger: w.ledger.filter(l => l.team_id === teamId),
+    catalogue: w.items.filter(i => i.is_active && i.pool !== "spin").map(i => {
       const pu = w.powerups.find(p => p.id === i.powerup_id);
       return { ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, mine: w.purchases.filter(p => p.item_id === i.id && p.team_id === teamId).length,
         powerup: pu?.name ?? null, powerupMinutes: pu?.minutes_delta ?? null, powerupRival: pu?.targets_rival ?? false,

@@ -7,6 +7,8 @@ import { useCommand, LiveSync, StatusLed, fmtTime, fmtMins, Empty, useNow, fmtCl
 import BingoBoard from "@/components/bingo-board";
 import { useBroadcastSand } from "@/components/sand-clock";
 import MemberTiles from "@/components/member-tiles";
+import Picker from "@/components/picker";
+import RoundLedgers from "@/components/round-ledger";
 import { HistoryFeed } from "@/components/team-arena";
 import { LETTERS } from "@/lib/bingo-shared";
 import { KINDS, PHASES, PERKS, effectText, kindLabel, boxName, type CardKind, type CardEffect } from "@/lib/cards";
@@ -65,7 +67,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="chip"><StatusLed status={liveCount(a) ? "live" : "closed"} /> {a} · {liveCount(a)}</span>)}
-          <LiveSync tables={["team_cards", "penalties", "teams", "auction_items", "transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "activity_log", "event_settings", "team_members", "help_requests"]} every={20000} />
+          <LiveSync tables={["team_ledger", "team_cards", "penalties", "teams", "auction_items", "transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "activity_log", "event_settings", "team_members", "help_requests"]} every={20000} />
         </div>
       </header>
 
@@ -230,7 +232,7 @@ function Stages({ w, cmd, paddle, stageOf }: Ctx) {
 /* ============================ AUCTION ============================ */
 function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
   const myLot = w.settings.live_lots?.[vkey] ?? null;
-  const items = w.items;
+  const items = w.items.filter(i => i.pool !== "spin");
   const soldOf = (id: string) => w.lotSales.filter(p => p.item_id === id).length;
   const buyersOf = (id: string) => w.lotSales.filter(p => p.item_id === id).map(p => p.team_name);
   const [cell, setCell] = useState<number | null>(null);
@@ -347,6 +349,7 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
 
 function ItemEditor({ cmd, item, close }: { w: World; cmd: Cmd; item: Partial<World["items"][number]>; close: () => void }) {
   const [f, setF] = useState({ item_name: item.item_name ?? "", description: item.description ?? "", base_points: String(item.base_points ?? 100), min_price: item.min_price?.toString() ?? "", max_price: item.max_price?.toString() ?? "", price_step: String(item.price_step ?? 10) });
+  const spin = item.pool === "spin";
   const [kind, setKind] = useState<CardKind>((item.kind as CardKind) ?? "note");
   const e0 = (item.effect ?? {}) as CardEffect;
   const [fx, setFx] = useState({ minutes: String(e0.minutes ?? 15), amount: String(e0.amount ?? 10), mode: e0.mode ?? "cell", column: String(e0.column ?? 0), phase: e0.phase ?? "other", perk: e0.perk ?? "none" });
@@ -354,34 +357,40 @@ function ItemEditor({ cmd, item, close }: { w: World; cmd: Cmd; item: Partial<Wo
   const ux = (k: keyof typeof fx) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setFx({ ...fx, [k]: e.target.value });
   const effect = kind === "time" ? { minutes: Number(fx.minutes) } : kind === "points" ? { amount: Number(fx.amount) } : kind === "bingo" ? (fx.mode === "column" ? { mode: "column", column: Number(fx.column) } : { mode: "cell" }) : kind === "note" ? { phase: fx.phase, perk: fx.perk } : {};
   return (
-    <Modal title={item.id ? "Edit card" : "New card"} close={close}>
-      <form className="grid gap-3 sm:grid-cols-2" onSubmit={async e => { e.preventDefault(); if (await cmd.run({ action: "item_save", id: item.id, ...f, kind, effect, is_active: item.is_active ?? true })) close(); }}>
+    <Modal title={spin ? (item.id ? "Edit wheel segment" : "New wheel segment") : item.id ? "Edit card" : "New card"} close={close}>
+      <form className="grid gap-4 sm:grid-cols-2" onSubmit={async e => { e.preventDefault(); if (await cmd.run({ action: "item_save", id: item.id, ...f, kind, effect, pool: spin ? "spin" : "auction", is_active: item.is_active ?? true })) close(); }}>
         <L t="Name" c="sm:col-span-2"><input className="field" required value={f.item_name} onChange={up("item_name")} placeholder="+15 min" /></L>
         <L t="Description (teams see this)" c="sm:col-span-2"><input className="field" value={f.description} onChange={up("description")} /></L>
         <div className="sm:col-span-2">
           <p className="mb-1.5 text-xs font-semibold text-muted">Card type</p>
-          <div className="flex flex-wrap gap-1.5">{KINDS.map(k => <button key={k.key} type="button" className="key key-sm" data-on={kind === k.key} title={k.hint} onClick={() => setKind(k.key)}>{k.label}</button>)}</div>
+          <div className="seg">{KINDS.filter(k => !spin || ["time", "points", "note"].includes(k.key)).map(k => <button key={k.key} type="button" data-on={kind === k.key} title={k.hint} onClick={() => setKind(k.key)}>{k.label}</button>)}</div>
           <p className="mt-1.5 text-xs text-faint">{KINDS.find(k => k.key === kind)?.hint}</p>
         </div>
         {kind === "time" && <L t="Minutes (+ adds, − removes)"><input className="field num" type="number" required value={fx.minutes} onChange={ux("minutes")} /></L>}
         {kind === "points" && <L t="Auction points"><input className="field num" type="number" required value={fx.amount} onChange={ux("amount")} /></L>}
         {kind === "bingo" && <>
-          <L t="What it does"><select className="field" value={fx.mode} onChange={ux("mode")}><option value="cell">Covers one box (picked at sale)</option><option value="column">Completes a whole column</option></select></L>
-          {fx.mode === "column" && <L t="Column"><select className="field" value={fx.column} onChange={ux("column")}>{LETTERS.map((l, i) => <option key={l} value={i}>{l} (column {i + 1})</option>)}</select></L>}
+          <div className="sm:col-span-2"><p className="mb-1.5 text-xs font-semibold text-muted">What it does</p>
+            <div className="seg"><button type="button" data-on={fx.mode === "cell"} onClick={() => setFx({ ...fx, mode: "cell" })}>Covers one box</button><button type="button" data-on={fx.mode === "column"} onClick={() => setFx({ ...fx, mode: "column" })}>Completes a column</button></div></div>
+          {fx.mode === "column" && <div className="sm:col-span-2"><p className="mb-1.5 text-xs font-semibold text-muted">Column</p>
+            <div className="seg">{LETTERS.map((l, i) => <button key={l} type="button" data-on={fx.column === String(i)} onClick={() => setFx({ ...fx, column: String(i) })}>{l}</button>)}</div></div>}
         </>}
         {kind === "note" && <>
-          <L t="When it applies"><select className="field" value={fx.phase} onChange={ux("phase")}>{PHASES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}</select></L>
-          <L t="Tracked rule"><select className="field" value={fx.perk} onChange={ux("perk")}>{PERKS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}</select></L>
-          <p className="text-xs text-faint sm:col-span-2">{PERKS.find(p => p.key === fx.perk)?.hint}</p>
+          <div className="sm:col-span-2"><p className="mb-1.5 text-xs font-semibold text-muted">When it applies</p>
+            <div className="seg">{PHASES.map(p => <button key={p.key} type="button" data-on={fx.phase === p.key} onClick={() => setFx({ ...fx, phase: p.key })}>{p.label}</button>)}</div></div>
+          {!spin && <div className="sm:col-span-2"><p className="mb-1.5 text-xs font-semibold text-muted">Tracked rule</p>
+            <div className="seg">{PERKS.map(p => <button key={p.key} type="button" data-on={fx.perk === p.key} title={p.hint} onClick={() => setFx({ ...fx, perk: p.key })}>{p.label}</button>)}</div>
+            <p className="mt-1.5 text-xs text-faint">{PERKS.find(p => p.key === fx.perk)?.hint}</p></div>}
         </>}
+        {!spin && <>
         <L t="Opening price"><input className="field num" type="number" required value={f.base_points} onChange={up("base_points")} /></L>
         <L t="Step"><input className="field num" type="number" min={1} value={f.price_step} onChange={up("price_step")} /></L>
         <L t="Minimum"><input className="field num" type="number" value={f.min_price} onChange={up("min_price")} placeholder="none" /></L>
         <L t="Maximum"><input className="field num" type="number" value={f.max_price} onChange={up("max_price")} placeholder="none" /></L>
-        <p className="text-xs text-faint sm:col-span-2">Each card sells once. Use <b>Copy</b> in the list to open another slot of it.</p>
+        <p className="text-xs text-faint sm:col-span-2">Each card sells once. Use <b>Copy slot</b> to open another.</p>
+        </>}
         <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
           {item.id && <>
-            <button type="button" className="key key-sm mr-auto" title="Open another slot of this card" onClick={async () => { if (await cmd.run({ action: "item_copy", id: item.id })) close(); }}><Copy size={12} /> Copy slot</button>
+            {!spin && <button type="button" className="key key-sm mr-auto" title="Open another slot of this card" onClick={async () => { if (await cmd.run({ action: "item_copy", id: item.id })) close(); }}><Copy size={12} /> Copy slot</button>}
             <button type="button" className="key key-sm" onClick={async () => { if (await cmd.run({ action: "item_toggle", id: item.id, is_active: !item.is_active })) close(); }}>{item.is_active ? <><EyeOff size={12} /> Hide</> : <><Eye size={12} /> Show</>}</button>
             <button type="button" className="key-danger key-sm" onClick={async () => { if (confirm(`Delete "${item.item_name}"? If it was sold, the sale is voided and points refunded.`) && await cmd.run({ action: "item_delete", id: item.id })) close(); }}><Trash2 size={12} /> Delete</button>
           </>}
@@ -470,12 +479,11 @@ function TrumpResolve({ card, w, full, cmd, teamId }: { card: World["cards"][num
   const needsCell = it?.kind === "bingo" && it.effect?.mode !== "column";
   const marks = new Set(w.marks.filter(m => m.team_id === teamId).map(m => m.idx));
   return (
-    <div className="mt-2 flex flex-wrap gap-2 pl-[6.5rem]">
-      <select className="field !py-1 text-sm" value={item} onChange={e => { setItem(e.target.value); setCell(""); }}>
-        <option value="">Card the team picks…</option>
-        {full.items.filter(i => i.kind !== "trump").map(i => <option key={i.id} value={i.id}>{i.item_name} — {effectText(i.kind, i.effect)}</option>)}
-      </select>
-      {needsCell && <select className="field !py-1 text-sm" value={cell} onChange={e => setCell(e.target.value)}><option value="">Box…</option>{w.cells.filter(c => !c.is_free && !marks.has(c.idx)).map(c => <option key={c.idx} value={c.idx}>{boxName(c.idx)} · {c.label}</option>)}</select>}
+    <div className="mt-2 flex flex-wrap items-center gap-2 sm:pl-[6.5rem]">
+      <Picker className="min-w-[260px] flex-1" placeholder="Card the team picks…" value={item} onChange={v => { setItem(v); setCell(""); }}
+        options={full.items.filter(i => i.kind !== "trump" && i.pool !== "spin").map(i => ({ value: i.id, label: i.item_name, hint: effectText(i.kind, i.effect) }))} />
+      {needsCell && <Picker className="min-w-[200px]" placeholder="Box…" value={cell} onChange={setCell}
+        options={w.cells.filter(c => !c.is_free).map(c => ({ value: String(c.idx), label: `${boxName(c.idx)} · ${c.label}`, disabled: marks.has(c.idx), hint: marks.has(c.idx) ? "Already stamped" : undefined }))} />}
       <button className="key key-sm" disabled={!item || (needsCell && cell === "") || cmd.busy} onClick={() => confirm(`Turn the trump card into "${it?.item_name}"? Its effect applies now.`) && cmd.run({ action: "trump_resolve", id: card.id, item_id: item, cell: needsCell ? Number(cell) : null })}>Apply</button>
     </div>
   );
@@ -486,11 +494,9 @@ function SwapPs({ card, t, full, cmd, paddle }: { card: World["cards"][number]; 
   const other = full.teams.find(x => x.id === target);
   const options = full.teams.filter(x => x.id !== t.id);
   return (
-    <div className="mt-2 flex flex-wrap gap-2 pl-[6.5rem]">
-      <select className="field !py-1 text-sm" value={target} onChange={e => setTarget(e.target.value)}>
-        <option value="">Swap with…</option>
-        {options.map(x => <option key={x.id} value={x.id} disabled={!x.problem_statement || x.ps_locked}>#{paddle[x.id]} {x.team_name} — {x.ps_locked ? "already swapped" : x.problem_statement ? x.problem_statement.slice(0, 50) : "no problem statement yet"}</option>)}
-      </select>
+    <div className="mt-2 flex flex-wrap items-center gap-2 sm:pl-[6.5rem]">
+      <Picker className="min-w-[260px] flex-1" placeholder="Swap with…" value={target} onChange={setTarget}
+        options={options.map(x => ({ value: x.id, label: `#${paddle[x.id]} ${x.team_name}`, disabled: !x.problem_statement || x.ps_locked, hint: x.ps_locked ? "Already swapped" : x.problem_statement ? x.problem_statement : "No problem statement yet" }))} />
       {!t.problem_statement && <span className="self-center text-xs text-err">Save this team's problem statement first</span>}
       <button className="key key-sm" disabled={!target || !t.problem_statement || cmd.busy} title={!t.problem_statement ? "Log this team's problem statement first" : ""}
         onClick={() => confirm(`Swap problem statements between ${t.team_name} and ${other?.team_name}? Both become final.`) && cmd.run({ action: "ps_swap", id: card.id, target_id: target })}>Swap</button>
@@ -501,53 +507,46 @@ function SwapPs({ card, t, full, cmd, paddle }: { card: World["cards"][number]; 
 /* ============================ SPIN ============================ */
 function Spin({ w, cmd, paddle, stageOf }: Ctx) {
   const [team, setTeam] = useState("");
-  const [pu, setPu] = useState("");
-  const [target, setTarget] = useState("");
-  const [mins, setMins] = useState("");
-  const [note, setNote] = useState("");
-  const power = w.powerups.find(p => p.id === pu);
-  const recent = w.teamPowerups.filter(p => p.source === "spin").slice(0, 15);
+  const [seg, setSeg] = useState("");
+  const [editing, setEditing] = useState<Partial<World["items"][number]> | null>(null);
+  const segments = w.items.filter(i => i.pool === "spin");
+  const segment = segments.find(i => i.id === seg);
+  const results = w.cards.filter(c => c.source === "spin").slice().reverse().slice(0, 20);
   const name = (id: string | null) => w.teams.find(t => t.id === id)?.team_name ?? "";
   const live = w.teams.filter(t => stageOf(t.id, "spin") === "live");
-  const done = new Set(w.teamPowerups.filter(p => p.source === "spin").map(p => p.team_id));
-  const award = async () => {
-    const r = await cmd.run({ action: "award", source: "spin", team_id: team, powerup_id: pu, target_team_id: target || undefined, minutes_delta: mins, note });
-    if (r) { setTeam(""); setTarget(""); setMins(""); setNote(""); }
-  };
+  const give = async () => { if (await cmd.run({ action: "spin_grant", team_id: team, item_id: seg })) { setTeam(""); setSeg(""); } };
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_1fr_360px]">
       <div className="panel p-5">
         <h2 className="font-display mb-1 font-bold">1 · Who spun?</h2>
-        <p className="mb-3 text-xs text-muted">{live.length} team(s) have the spin round live. A tick means the team already has a spin result.</p>
+        <p className="mb-3 text-xs text-muted">{live.length} team(s) have the spin round open.</p>
         {live.length === 0
-          ? <Empty title="No team has Spin open">Open the Spin round for the teams at the wheel under <b>Rounds</b>. Only those teams can receive spin results.</Empty>
+          ? <Empty title="No team has Spin open">Open the Spin round for the teams at the wheel under <b>Rounds</b>.</Empty>
           : <TeamPicker w={w} paddle={paddle} value={team} onChange={setTeam} filter={t => stageOf(t.id, "spin") === "live"} />}
-        <div className="mt-3 flex flex-wrap gap-1">{live.map(t => <span key={t.id} className="chip">{done.has(t.id) && <Check size={10} className="text-ok" />}{t.team_name}</span>)}</div>
       </div>
       <div className="panel p-5">
-        <h2 className="font-display mb-3 font-bold">2 · Where did it land?</h2>
-        {w.powerups.filter(p => p.is_active).length === 0 ? <Empty title="No power-ups yet">Add the wheel&apos;s segments in the Power-ups tab first.</Empty> :
-          <div className="grid grid-cols-2 gap-2">{w.powerups.filter(p => p.is_active).map(p => (
-            <button key={p.id} className="key flex-col items-start !whitespace-normal text-left" data-on={pu === p.id} onClick={() => { setPu(p.id); setMins(""); }}>
-              <span className="flex w-full items-center gap-1.5"><Swatch c={p.color} />{p.name}</span>
-              <span className="num text-[11px] font-normal text-muted">{fmtMins(p.minutes_delta)}{p.targets_rival && " · rival"}</span>
-            </button>))}</div>}
-        {power?.targets_rival && <div className="mt-4"><p className="eyebrow mb-2 flex items-center gap-1"><Swords size={12} /> Target team</p><TeamPicker w={w} paddle={paddle} value={target} onChange={setTarget} filter={t => t.id !== team} /></div>}
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <L t="Override minutes"><input className="field num" type="number" placeholder={power ? String(power.minutes_delta) : "—"} value={mins} onChange={e => setMins(e.target.value)} /></L>
-          <L t="Note"><input className="field" value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></L>
-        </div>
-        <button className="key-primary key-lg mt-4 w-full" disabled={!team || !pu || (power?.targets_rival && !target) || cmd.busy} onClick={award}><Disc3 size={18} /> Give {power?.name ?? "power-up"} to {name(team) || "…"}</button>
+        <div className="mb-3 flex items-center justify-between"><h2 className="font-display font-bold">2 · Where did it land?</h2>
+          <button className="key key-sm" onClick={() => setEditing({ pool: "spin", kind: "points", effect: { amount: 5 }, is_active: true, price_step: 10, base_points: 0 })}><Plus size={13} /> Segment</button></div>
+        {segments.length === 0 ? <Empty title="No wheel segments">Run ui_v10_spin_ledger.sql to load the 8 segments.</Empty> :
+          <div className="grid grid-cols-2 gap-2">{segments.map(p => (
+            <div key={p.id} className="relative">
+              <button className="key w-full flex-col items-start !whitespace-normal !normal-case !tracking-normal text-left" data-on={seg === p.id} onClick={() => setSeg(p.id)}>
+                <span className="font-semibold">{p.item_name}</span>
+                <span className="text-[11px] font-normal text-muted">{kindLabel(p.kind)} · {effectText(p.kind, p.effect)}</span>
+              </button>
+              <button className="absolute right-1.5 top-1.5 rounded p-1 text-faint hover:bg-frost" title="Edit segment" onClick={() => setEditing(p)}><Pencil size={11} /></button>
+            </div>))}</div>}
+        <button className="key-primary key-lg mt-4 w-full" disabled={!team || !seg || cmd.busy} onClick={give}><Disc3 size={18} /> Give “{segment?.item_name ?? "…"}” to {name(team) || "…"}</button>
       </div>
       <div className="panel p-4">
         <h3 className="font-display mb-2 font-bold">Spin log</h3>
-        {recent.length === 0 ? <p className="text-sm text-muted">No spins recorded.</p> : recent.map(p => (
-          <div key={p.id} className="table-row flex items-center gap-2 py-2 text-sm">
-            <span className="min-w-0 flex-1 truncate"><b>{name(p.team_id)}</b> → {p.name}{p.target_team_id && <> on {name(p.target_team_id)}</>}</span>
-            <span className="num text-xs text-muted">{fmtMins(p.minutes_delta)}</span>
-            <button className="key key-sm" onClick={() => confirm("Revoke this result?") && cmd.run({ action: "revoke", id: p.id })}><Undo2 size={12} /></button>
+        {results.length === 0 ? <p className="text-sm text-muted">No spins recorded.</p> : results.map(c => (
+          <div key={c.id} className="table-row flex items-center gap-2 py-2 text-sm">
+            <span className="min-w-0 flex-1"><b>{name(c.team_id)}</b> → {c.name}{c.detail && <span className="text-muted"> · {c.detail}</span>}</span>
+            <button className="key key-sm" title="Remove and undo" onClick={() => confirm(`Remove "${c.name}" from ${name(c.team_id)}? Its effect is undone.`) && cmd.run({ action: "spin_revoke", id: c.id })}><Undo2 size={12} /></button>
           </div>))}
       </div>
+      {editing && <ItemEditor w={w} cmd={cmd} item={editing} close={() => setEditing(null)} />}
     </div>
   );
 }
@@ -1049,6 +1048,7 @@ function TeamDrawer({ w, cmd, paddle, stageOf, staff, teamId, secret, close, onD
         </div>
 
         <DrawerCards t={t} w={w} cmd={cmd} paddle={paddle} />
+        <div className="panel mt-5 p-4"><RoundLedgers compact rows={w.ledger.filter(l => l.team_id === t.id)} baseEnd={w.settings.hackathon_end_at} /></div>
 
         <div className="panel mt-5 flex flex-wrap items-center gap-3 p-4">
           <KeyRound size={16} />
