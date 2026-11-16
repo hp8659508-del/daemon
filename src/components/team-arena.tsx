@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
+import RoundLedgers from "@/components/round-ledger";
 import { onLotFeed, type LotFeed } from "@/lib/realtime";
 import MemberTiles from "@/components/member-tiles";
 import { COLUMNS } from "@/lib/bingo-shared";
@@ -67,7 +68,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
           <section className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div><p className="eyebrow">{v.team?.bay ?? "Venue to be announced"} · paddle {String(paddle).padStart(2, "0")}</p><h2 className="font-display mt-1 text-4xl">Your team</h2></div>
-              <span className="chip">{v.members.length} member{v.members.length === 1 ? "" : "s"} · {v.members.filter(m => m.checked_in).length} checked in</span>
+              <span className="chip">{v.members.length} member{v.members.length === 1 ? "" : "s"}</span>
             </div>
             <MemberTiles teamId={v.team?.id ?? ""} members={v.members} />
             <p className="text-xs text-muted">See a wrong detail or a missing teammate? Tap <b>Need help</b> and an organiser will fix it.</p>
@@ -77,7 +78,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
 
       <div className="flex items-center justify-between text-xs text-muted">
         <span>Points and power-ups are set by the organisers. Your screen updates by itself.</span>
-        <LiveSync tables={["transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log", "team_members", "help_requests"]} every={6000} jitter={1500} teamId={v.team?.id} />
+        <LiveSync tables={["team_ledger", "team_cards", "penalties", "teams", "transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "event_settings", "activity_log", "team_members", "help_requests"]} every={6000} jitter={1500} teamId={v.team?.id} />
       </div>
     </div>
   );
@@ -245,7 +246,7 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
           <div className="flex items-center justify-between"><h3 className="font-display font-bold">Your wins</h3><span className="num text-sm text-muted">−{spent.toLocaleString("en-IN")} pts</span></div>
           <div className="mt-3 space-y-2">
             {v.purchases.length === 0 ? <p className="text-sm text-muted">Nothing won yet.</p> : v.purchases.map(p => (
-              <div key={p.id} className="well flex items-center justify-between px-3 py-2 text-sm"><span className="font-medium">{p.item_name}</span><span className="num">−{p.purchase_price}</span></div>
+              <div key={p.id} className="well flex items-center gap-3 px-4 py-2.5 text-sm"><span className="min-w-0 flex-1 truncate font-medium">{p.item_name}</span><span className="num shrink-0">−{p.purchase_price}</span></div>
             ))}
           </div>
         </div>
@@ -256,7 +257,7 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
 
 /* ---------------- Spin ---------------- */
 function SpinLive({ v }: { v: TeamView }) {
-  const fromSpin = v.powerups.filter(p => p.source === "spin" && p.team_id === v.team?.id);
+  const fromSpin = v.cards.filter(c => c.source === "spin").slice().reverse();
   const latest = fromSpin[0];
   return (
     <div className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
@@ -265,14 +266,18 @@ function SpinLive({ v }: { v: TeamView }) {
         {latest ? (
           <div className="mt-4">
             <p className="eyebrow">The wheel gave you</p>
-            <p className="font-display animate-stamp mt-2 inline-block border-2 border-graphite bg-white px-4 py-2 text-3xl shadow-[4px_4px_0_#5878D8]">{latest.name}</p>
-            {latest.minutes_delta !== 0 && <p className="num mt-2 text-sm text-muted">{fmtMins(latest.minutes_delta)} {latest.target_name ? `to ${latest.target_name}` : "to your deadline"}</p>}
+            <p className="font-display animate-stamp mt-3 inline-block border-2 border-graphite bg-white px-5 py-3 text-3xl shadow-[4px_4px_0_#6B4BFF]">{latest.name}</p>
+            <p className="mt-3 text-sm text-muted">{latest.detail || effectText(latest.kind, latest.effect)}</p>
           </div>
         ) : <p className="mt-4 max-w-xs text-sm text-muted">{v.stages.spin.status === "live" ? "Head to the physical wheel. Your result will appear here once the organisers record it." : "No spin result was recorded for your team."}</p>}
       </div>
       <div className="panel p-5">
         <h3 className="font-display font-bold">Spin results</h3>
-        <div className="mt-3 space-y-2">{fromSpin.length === 0 ? <Empty title="No results yet" /> : fromSpin.map(p => <PowerRow key={p.id} p={p} me={v.team?.id ?? ""} />)}</div>
+        <div className="mt-4 space-y-2">{fromSpin.length === 0 ? <Empty title="No results yet" /> : fromSpin.map(c => (
+          <div key={c.id} className="well flex items-center gap-4 px-4 py-3">
+            <span className="w-16 shrink-0 text-[10px] font-bold uppercase tracking-wider text-faint">{kindLabel(c.kind)}</span>
+            <div className="min-w-0 flex-1"><p className="font-semibold">{c.name}</p><p className="text-xs text-muted">{c.detail || effectText(c.kind, c.effect)}</p></div>
+          </div>))}</div>
       </div>
     </div>
   );
@@ -343,17 +348,7 @@ function Loadout({ v }: { v: TeamView }) {
           ))}
         </ol>
       </div>
-      <div className="panel overflow-hidden lg:col-span-2">
-        <div className="flex items-center justify-between px-5 py-4"><h3 className="font-display text-lg font-bold">Points ledger</h3><span className="num text-sm">{v.balance.toLocaleString("en-IN")} pts</span></div>
-        {v.txs.length === 0 ? <div className="p-5"><Empty title="No entries yet" /></div> : v.txs.map(t => (
-          <div key={t.id} className="table-row flex items-center gap-3 px-5 py-2.5 text-sm">
-            {t.points >= 0 ? <ArrowUpRight size={15} className="text-ok" /> : <ArrowDownRight size={15} className="text-err" />}
-            <span className="min-w-0 flex-1 truncate">{t.description}</span>
-            <span className="text-xs text-faint">{fmtTime(t.created_at)}</span>
-            <span className={`num w-20 text-right font-semibold ${t.points >= 0 ? "text-ok" : "text-err"}`}>{t.points > 0 ? "+" : ""}{t.points}</span>
-          </div>
-        ))}
-      </div>
+      <div className="lg:col-span-2"><RoundLedgers rows={v.ledger} baseEnd={v.baseEnd} /></div>
       {v.leaderboard && (
         <div className="panel p-5 lg:col-span-2">
           <h3 className="font-display text-lg font-bold">Top of the board</h3>
@@ -438,14 +433,13 @@ function MyCards({ v }: { v: TeamView }) {
         <p className="text-[10px] font-bold uppercase tracking-[.18em] text-muted">Problem statement {v.psLocked && "· final"}</p>
         <p className="mt-1 text-sm font-semibold">{v.problemStatement || <span className="font-normal text-faint">Not assigned yet</span>}</p>
       </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {v.cards.length === 0 ? <div className="sm:col-span-2"><Empty title="No cards yet">Cards you win at the auction show here.</Empty></div> : v.cards.map(c => {
           const auto = ["time", "points", "bingo"].includes(c.kind);
           const tag = c.status === "spent" ? "USED" : c.status === "pending" ? "TELL AN ORGANISER WHICH CARD" : c.status === "resolved" ? "COPIED" : auto ? "APPLIED" : "";
           return (
-            <div key={c.id} className={`well flex items-center gap-3 px-3 py-2.5 ${c.status === "spent" || c.status === "resolved" ? "opacity-60" : ""}`}>
-              <span className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wider text-faint">{c.kind === "note" ? phaseLabel(c.effect?.phase).split(" ")[0] : kindLabel(c.kind)}</span>
-              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{c.name}{c.source === "trump" && <span className="font-normal text-muted"> · via trump</span>}</p>
+            <div key={c.id} className={`well flex items-center gap-4 px-4 py-3 ${c.status === "spent" || c.status === "resolved" ? "opacity-60" : ""}`}>
+              <div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-faint">{c.kind === "note" ? phaseLabel(c.effect?.phase) : kindLabel(c.kind)}{c.source === "spin" ? " · wheel" : ""}</p><p className="mt-0.5 truncate text-sm font-semibold">{c.name}{c.source === "trump" && <span className="font-normal text-muted"> · via trump</span>}</p>
                 <p className="truncate text-xs text-muted">{c.detail || effectText(c.kind, c.effect)}</p></div>
               {tag && <span className={`chip !text-[9px] ${c.status === "spent" ? "" : c.status === "pending" ? "text-err" : "text-ok"}`}>{tag}</span>}
             </div>
@@ -488,13 +482,13 @@ function LotCatalogue({ v, onBlock }: { v: TeamView; onBlock: string | null }) {
           {v.catalogue.map((i, n) => {
             const st = status(i);
             return (
-              <div key={i.id} className={`table-row grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 md:grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1.2fr)_110px_70px_118px] ${i.id === onBlock ? "bg-cobalt-wash" : ""} ${i.sold >= i.quantity && i.mine === 0 ? "opacity-60" : ""}`}>
+              <div key={i.id} className={`table-row grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 md:grid-cols-[36px_minmax(0,1.5fr)_minmax(0,1.3fr)_110px_80px_170px] ${i.id === onBlock ? "bg-cobalt-wash" : ""} ${i.sold >= i.quantity && i.mine === 0 ? "opacity-60" : ""}`}>
                 <span className="num text-xs text-faint">{String(n + 1).padStart(2, "0")}</span>
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{i.item_name}</p>
                   {i.description && <p className="truncate text-xs text-muted">{i.description}</p>}
                 </div>
-                <span className={`justify-self-end border border-graphite px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider md:order-last ${st.cls}`}>{st.label}</span>
+                <span title={st.label} className={`max-w-[170px] justify-self-end truncate border border-graphite px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider md:order-last ${st.cls}`}>{st.label}</span>
                 <div className="col-start-2 min-w-0 text-xs md:col-start-auto">
                   <span className="inline-flex items-center gap-1 font-semibold"><Sparkles size={11} />{effectText(i.kind, i.effect)}</span>
                 </div>

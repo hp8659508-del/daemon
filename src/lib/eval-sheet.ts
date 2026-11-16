@@ -30,7 +30,7 @@ export async function buildEval(staff: Staff): Promise<{ teams: EvalTeam[]; gene
         status: c.kind === "note" && c.status === "held" ? "" : STATUS[c.status] ?? c.status,
         detail: c.detail ?? "",
         price: c.purchase_id ? full.purchases.find(p => p.id === c.purchase_id)?.purchase_price ?? null : null,
-        via: c.source === "trump" ? "Trump card" : c.source === "manual" ? "Organiser" : "Auction",
+        via: c.source === "trump" ? "Trump card" : c.source === "spin" ? "Spin wheel" : c.source === "manual" ? "Organiser" : "Auction",
         at: c.created_at,
       })),
       penalties: w.penalties.filter(p => p.team_id === t.id || p.landed_team_id === t.id).map(p => ({

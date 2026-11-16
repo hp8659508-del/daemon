@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       if (Array.isArray(body.team_ids)) body.team_ids.forEach((x: unknown) => typeof x === "string" && touched.add(x));
       if (typeof body.team_id === "string") touched.add(body.team_id);
       if (typeof body.target_id === "string") touched.add(body.target_id);
-      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], trump_resolve: ["team_cards", "team_id"], ps_swap: ["team_cards", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
+      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], trump_resolve: ["team_cards", "team_id"], spin_revoke: ["team_cards", "team_id"], ps_swap: ["team_cards", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
       if (byRow[body.action] && typeof body.id === "string") {
         const [table, col] = byRow[body.action];
         const { data: row } = await (db as any).from(table).select(col).eq("id", body.id).maybeSingle();
@@ -439,6 +439,7 @@ export async function POST(request: Request) {
         if (!["time", "points", "bingo", "note", "trump"].includes(kind)) throw new Error("Pick a card type.");
         const e = (body.effect ?? {}) as Record<string, unknown>;
         let effect: Record<string, unknown> = {};
+        if (body.pool === "spin" && !["time", "points", "note"].includes(kind)) throw new Error("Wheel segments are Time, Points or Note.");
         if (kind === "time") { effect = { minutes: int(e.minutes, -600, 600) }; if (!effect.minutes) throw new Error("Enter the minutes."); }
         if (kind === "points") { effect = { amount: int(e.amount, -100000, 100000) }; if (!effect.amount) throw new Error("Enter the points."); }
         if (kind === "bingo") effect = e.mode === "column" ? { mode: "column", column: int(e.column, 0, 4) } : { mode: "cell" };
@@ -455,6 +456,7 @@ export async function POST(request: Request) {
           price_step: int(body.price_step ?? 10, 1, 100000),
           powerup_id: null,
           kind, effect,
+          pool: body.pool === "spin" ? "spin" : "auction",
           is_active: body.is_active !== false,
         };
         const q = body.id ? db.from("auction_items").update(row).eq("id", body.id) : db.from("auction_items").insert({ ...row, quantity: 1 });
@@ -555,6 +557,17 @@ export async function POST(request: Request) {
         if (target) await log({ team_id: target, kind: "powerup", action: "granted", label: `${pu.name} played on you`, minutes });
         return NextResponse.json({ ok: true, message: `${pu.name} granted` });
       }
+      case "spin_grant": {
+        const teamId = str(body.team_id);
+        await requireLive(teamId, "spin");
+        const { data, error } = await db.rpc("admin_spin_grant", { p_item_id: str(body.item_id), p_team_id: teamId, p_admin: user.id });
+        fail(error);
+        return NextResponse.json({ ok: true, message: `${(data as { name?: string } | null)?.name ?? "Result"} given` });
+      }
+      case "spin_revoke": {
+        fail((await db.rpc("admin_spin_revoke", { p_card: str(body.id), p_admin: user.id })).error);
+        return NextResponse.json({ ok: true, message: "Spin result removed and undone" });
+      }
       case "powerup_used": {
         const { data: tp } = await db.from("team_powerups").select("team_id,name").eq("id", str(body.id)).maybeSingle();
         fail((await db.from("team_powerups").update({ used: Boolean(body.used) }).eq("id", str(body.id))).error);
@@ -574,7 +587,8 @@ export async function POST(request: Request) {
         await requireLive(str(body.team_id), "bingo");
         const args = { p_team_id: str(body.team_id), p_idx: int(body.idx, 0, 24), p_admin: user.id };
         // Prefer the explicit stamp/unstamp (ui_v6) so two volunteers can't undo each other.
-        let res = typeof body.on === "boolean" ? await db.rpc("admin_set_bingo", { ...args, p_on: body.on }) : null;
+        let res = typeof body.on === "boolean" ? await db.rpc("admin_bingo_mark", { ...args, p_on: body.on }) : null;
+        if (res?.error && /admin_bingo_mark/i.test(res.error.message)) res = await db.rpc("admin_set_bingo", { ...args, p_on: body.on });
         if (!res || (res.error && /Could not find the function|admin_set_bingo.*does not exist/i.test(res.error.message))) res = await db.rpc("admin_toggle_bingo", args);
         fail(res.error);
         const data = res.data as { marked?: boolean; noop?: boolean; columns?: number; full?: boolean } | null;

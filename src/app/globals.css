@@ -175,3 +175,44 @@ header .dh-brand-text { transition: opacity .6s, transform .6s; }
   .eval-team { break-inside: avoid; page-break-inside: avoid; }
   main > * { animation: none !important; }
 }
+
+/* ---------- segmented control ---------- */
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid #0E0B2B; border-radius: 10px; background: #fff; }
+.seg button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 7px; font: 700 11px Inter, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #4A4570; transition: background .15s, color .15s; }
+.seg button:hover { background: #F0EEFF; }
+.seg button[data-on="true"] { background: #0E0B2B; color: #fff; }
+.seg-count { min-width: 18px; padding: 1px 5px; border-radius: 999px; background: #ECEEFF; color: #4A4570; font-size: 10px; text-align: center; }
+.seg button[data-on="true"] .seg-count { background: #6B4BFF; color: #fff; }
+
+/* ---------- ledger table ---------- */
+.ledger { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ledger th { padding: 8px 14px; font: 700 10px Inter, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #6E6A88; background: #F6F5FF; border-bottom: 1px solid #DCD9EE; text-align: right; white-space: nowrap; }
+.ledger th.text-left, .ledger th:first-child { text-align: left; }
+.ledger th.grp { text-align: center; border-left: 1px solid #DCD9EE; color: #0E0B2B; }
+.ledger thead tr:nth-child(2) th:nth-child(odd) { border-left: 1px solid #DCD9EE; }
+.ledger td { padding: 10px 14px; border-bottom: 1px solid #EEECF8; text-align: right; vertical-align: middle; }
+.ledger td:nth-child(1), .ledger td:nth-child(2) { text-align: left; }
+.ledger td:nth-child(3), .ledger td:nth-child(5) { border-left: 1px solid #EEECF8; color: #6E6A88; }
+.ledger tbody tr:hover { background: #FAF9FF; }
+.ledger .up, .ledger .down { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.ledger .up { background: #E3F7EC; color: #14804A; }
+.ledger .down { background: #FDE8EC; color: #B4233C; }
+
+/* ---------- picker (styled dropdown) ---------- */
+.picker { position: relative; min-width: 220px; }
+.picker-btn { display: flex; width: 100%; align-items: center; gap: 8px; padding: 9px 12px; border: 1.5px solid #0E0B2B; border-radius: 10px; background: #fff; font: 500 14px Inter, sans-serif; color: #0E0B2B; box-shadow: 2px 2px 0 #0E0B2B; transition: box-shadow .15s, border-color .15s; }
+.picker-btn[data-open="true"], .picker-btn:focus-visible { border-color: #6B4BFF; box-shadow: 2px 2px 0 #6B4BFF; outline: 0; }
+.picker-pop { position: absolute; z-index: 60; left: 0; right: 0; top: calc(100% + 6px); max-height: 320px; overflow: hidden; display: flex; flex-direction: column; border: 1.5px solid #0E0B2B; border-radius: 12px; background: #fff; box-shadow: 0 18px 40px -12px rgba(14,11,43,.35); animation: dhrise .18s ease-out both; }
+.picker-search { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #EEECF8; color: #6E6A88; }
+.picker-search input { flex: 1; border: 0; outline: 0; font: 14px Inter, sans-serif; background: transparent; }
+.picker-pop ul { overflow-y: auto; padding: 4px; margin: 0; list-style: none; }
+.picker-pop li button { display: flex; width: 100%; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; text-align: left; font-size: 14px; color: #0E0B2B; }
+.picker-pop li button:hover:not(:disabled) { background: #F0EEFF; }
+.picker-pop li button[aria-selected="true"] { background: #ECEEFF; }
+.picker-pop li button:disabled { opacity: .45; cursor: not-allowed; }
+.picker-empty { padding: 10px; font-size: 13px; color: #6E6A88; }
+
+/* any remaining native selects: same look */
+select.field { appearance: none; -webkit-appearance: none; padding-right: 36px; border-radius: 10px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%230E0B2B' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
