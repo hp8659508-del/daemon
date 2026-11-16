@@ -25,6 +25,8 @@ export function scopeWorld(w: World, venue: string | null): World {
     activity: w.activity.filter(a => has(a.team_id)),
     members: w.members.filter(m => has(m.team_id)),
     help: w.help.filter(h => has(h.team_id)),
+    cards: w.cards.filter(c => has(c.team_id)),
+    penalties: w.penalties.filter(p => has(p.team_id) || has(p.landed_team_id)),
     balances: Object.fromEntries(Object.entries(w.balances).filter(([k]) => ids.has(k))),
   };
 }

@@ -167,3 +167,11 @@ header .dh-brand-text { transition: opacity .6s, transform .6s; }
 .dh-leds i { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80; }
 .dh-leds .off i { background: #8a8796; box-shadow: none; }
 @media (max-width: 1023px) { .dh-window { min-height: 240px; } }
+
+/* ---------- printable evaluation sheet ---------- */
+@media print {
+  .no-print, header.site-header, nav, #dh-splash { display: none !important; }
+  body { background: #fff !important; }
+  .eval-team { break-inside: avoid; page-break-inside: avoid; }
+  main > * { animation: none !important; }
+}

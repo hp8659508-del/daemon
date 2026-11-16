@@ -1,5 +1,6 @@
 "use client";
 
+import { effectText, kindLabel, phaseLabel } from "@/lib/cards";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
@@ -321,6 +322,7 @@ function Loadout({ v }: { v: TeamView }) {
   const pending = affecting.filter(p => !p.confirmed);
   return (
     <div className="grid gap-5 lg:grid-cols-2">
+      <MyCards v={v} />
       <div className="panel p-5">
         <div className="flex items-center justify-between"><h3 className="font-display text-lg font-bold">Power-ups</h3><span className="chip">{v.powerups.filter(p => !p.used).length} ready</span></div>
         <div className="mt-4 space-y-2">{v.powerups.length === 0 ? <Empty title="Empty loadout">Win lots, spin the wheel or clear dares to collect power-ups.</Empty> : v.powerups.map(p => <PowerRow key={p.id} p={p} me={me} />)}</div>
@@ -426,24 +428,62 @@ function HelpButton({ open }: { open: boolean }) {
   );
 }
 
+/* ---------------- Your cards, problem statement, penalties ---------------- */
+function MyCards({ v }: { v: TeamView }) {
+  const me = v.team?.id ?? "";
+  return (
+    <div className="panel p-5 lg:col-span-2">
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-display text-lg font-bold">Your cards</h3><span className="chip">{v.cards.length} held</span></div>
+      <div className="well mt-4 px-4 py-3">
+        <p className="text-[10px] font-bold uppercase tracking-[.18em] text-muted">Problem statement {v.psLocked && "· final"}</p>
+        <p className="mt-1 text-sm font-semibold">{v.problemStatement || <span className="font-normal text-faint">Not assigned yet</span>}</p>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {v.cards.length === 0 ? <div className="sm:col-span-2"><Empty title="No cards yet">Cards you win at the auction show here.</Empty></div> : v.cards.map(c => {
+          const auto = ["time", "points", "bingo"].includes(c.kind);
+          const tag = c.status === "spent" ? "USED" : c.status === "pending" ? "TELL AN ORGANISER WHICH CARD" : c.status === "resolved" ? "COPIED" : auto ? "APPLIED" : "";
+          return (
+            <div key={c.id} className={`well flex items-center gap-3 px-3 py-2.5 ${c.status === "spent" || c.status === "resolved" ? "opacity-60" : ""}`}>
+              <span className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wider text-faint">{c.kind === "note" ? phaseLabel(c.effect?.phase).split(" ")[0] : kindLabel(c.kind)}</span>
+              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{c.name}{c.source === "trump" && <span className="font-normal text-muted"> · via trump</span>}</p>
+                <p className="truncate text-xs text-muted">{c.detail || effectText(c.kind, c.effect)}</p></div>
+              {tag && <span className={`chip !text-[9px] ${c.status === "spent" ? "" : c.status === "pending" ? "text-err" : "text-ok"}`}>{tag}</span>}
+            </div>
+          );
+        })}
+      </div>
+      {v.penalties.length > 0 && (
+        <div className="mt-4 border-t border-silver/70 pt-3">
+          <p className="text-[10px] font-bold uppercase tracking-[.18em] text-muted">Penalties</p>
+          {v.penalties.map(p => (
+            <p key={p.id} className="mt-1 text-sm">{p.team_id !== me && <>From <b>{p.from_name}</b>: </>}{p.reason}
+              <span className="num text-err"> {[p.minutes ? `−${p.minutes} min` : "", p.points ? `−${p.points} pts` : ""].filter(Boolean).join(" ")}</span>
+              <span className="text-muted"> · {p.outcome === "applied" ? "taken" : p.outcome === "blocked" ? "blocked by your No penalties card" : p.outcome === "passed" ? (p.landed_team_id === me ? "received" : `passed to ${p.landed_name}`) : "passed on, then skipped"}</span></p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Lot catalogue: one clear row per lot ---------------- */
 function LotCatalogue({ v, onBlock }: { v: TeamView; onBlock: string | null }) {
   const status = (i: TeamView["catalogue"][number]) =>
     i.id === onBlock ? { label: "On the block", cls: "bg-graphite text-white" }
     : i.mine > 0 ? { label: "Yours", cls: "bg-ok text-white" }
-    : i.sold >= i.quantity ? { label: "Sold out", cls: "bg-frost text-faint" }
+    : i.sold >= i.quantity ? { label: `Sold · ${i.buyers.join(", ")}`, cls: "bg-frost text-faint" }
     : { label: "Available", cls: "bg-white" };
   return (
     <div className="panel overflow-hidden">
       <div className="flex items-center justify-between border-b border-graphite px-5 py-4">
-        <h3 className="font-display">Lot catalogue</h3>
+        <h3 className="font-display">Card catalogue</h3>
         <span className="num text-xs text-muted">{v.catalogue.filter(i => i.sold < i.quantity).length} of {v.catalogue.length} available</span>
       </div>
       {v.catalogue.length === 0 ? <div className="p-5"><Empty title="No lots announced yet" /></div> : (
         <>
           {/* header (desktop) */}
           <div className="hidden grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1.2fr)_110px_70px_118px] gap-3 border-b border-silver/30 bg-frost/50 px-5 py-2 text-[10px] font-bold uppercase tracking-[.16em] text-muted md:grid">
-            <span>#</span><span>Lot</span><span>Gives you</span><span className="text-right">Price range</span><span className="text-right">Left</span><span className="text-right">Status</span>
+            <span>#</span><span>Card</span><span>Gives you</span><span className="text-right">Price range</span><span className="text-right">Type</span><span className="text-right">Status</span>
           </div>
           {v.catalogue.map((i, n) => {
             const st = status(i);
@@ -456,10 +496,10 @@ function LotCatalogue({ v, onBlock }: { v: TeamView; onBlock: string | null }) {
                 </div>
                 <span className={`justify-self-end border border-graphite px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider md:order-last ${st.cls}`}>{st.label}</span>
                 <div className="col-start-2 min-w-0 text-xs md:col-start-auto">
-                  {i.powerup ? <span className="inline-flex items-center gap-1 font-semibold"><Sparkles size={11} />{i.powerup}{i.powerupMinutes ? <span className={`num ${i.powerupMinutes > 0 ? "text-ok" : "text-err"}`}> {fmtMins(i.powerupMinutes)}</span> : null}{i.powerupRival && <span className="text-ember"> · rival</span>}</span> : <span className="text-faint">—</span>}
+                  <span className="inline-flex items-center gap-1 font-semibold"><Sparkles size={11} />{effectText(i.kind, i.effect)}</span>
                 </div>
                 <span className="num col-start-2 text-xs text-muted md:col-start-auto md:text-right">{i.min_price ?? i.base_points}–{i.max_price ?? "∞"} pts</span>
-                <span className="num hidden text-right text-xs md:block">{Math.max(0, i.quantity - i.sold)}/{i.quantity}</span>
+                <span className="hidden text-right text-[10px] font-bold uppercase tracking-wider text-muted md:block">{kindLabel(i.kind)}</span>
               </div>
             );
           })}

@@ -60,7 +60,8 @@ export async function POST(request: Request) {
       const touched = new Set<string>();
       if (Array.isArray(body.team_ids)) body.team_ids.forEach((x: unknown) => typeof x === "string" && touched.add(x));
       if (typeof body.team_id === "string") touched.add(body.team_id);
-      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
+      if (typeof body.target_id === "string") touched.add(body.target_id);
+      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], trump_resolve: ["team_cards", "team_id"], ps_swap: ["team_cards", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
       if (byRow[body.action] && typeof body.id === "string") {
         const [table, col] = byRow[body.action];
         const { data: row } = await (db as any).from(table).select(col).eq("id", body.id).maybeSingle();
@@ -262,6 +263,10 @@ export async function POST(request: Request) {
         const del = async (table: string) => fail((await db.from(table).delete().in("team_id", teamIds)).error);
         if (parts.includes("purchases") || parts.includes("points")) {
           const { data: pr } = await db.from("purchases").select("transaction_id").in("team_id", teamIds);
+          const { data: cs } = await db.from("team_cards").select("applied").in("team_id", teamIds);
+          const cardTx = (cs ?? []).map((c: any) => c.applied?.tx).filter(Boolean);
+          if (cardTx.length) await db.from("transactions").delete().in("id", cardTx);   // +points cards
+          await del("team_cards");
           await db.from("team_powerups").delete().in("team_id", teamIds).not("purchase_id", "is", null);
           await del("purchases");
           const txIds = (pr ?? []).map(r => r.transaction_id).filter(Boolean);
@@ -273,7 +278,7 @@ export async function POST(request: Request) {
         if (parts.includes("bingo")) { await del("team_bingo"); done.push("bingo marks"); }
         if (parts.includes("rounds")) { await del("team_stages"); done.push("rounds → upcoming"); }
         if (parts.includes("help")) { await del("help_requests"); done.push("help requests"); }
-        if (parts.includes("history")) { await del("activity_log"); done.push("history"); }
+        if (parts.includes("history")) { await del("activity_log"); await del("penalties"); done.push("history"); }
         if (parts.includes("starting_points")) {
           const { data: es } = await db.from("event_settings").select("starting_points").eq("id", true).maybeSingle();
           const sp = Number(es?.starting_points ?? 0);
@@ -430,19 +435,47 @@ export async function POST(request: Request) {
         const min = body.min_price === "" || body.min_price == null ? null : int(body.min_price, 0);
         const max = body.max_price === "" || body.max_price == null ? null : int(body.max_price, 0);
         if (min != null && max != null && min > max) throw new Error("Minimum is above maximum.");
+        const kind = String(body.kind ?? "note");
+        if (!["time", "points", "bingo", "note", "trump"].includes(kind)) throw new Error("Pick a card type.");
+        const e = (body.effect ?? {}) as Record<string, unknown>;
+        let effect: Record<string, unknown> = {};
+        if (kind === "time") { effect = { minutes: int(e.minutes, -600, 600) }; if (!effect.minutes) throw new Error("Enter the minutes."); }
+        if (kind === "points") { effect = { amount: int(e.amount, -100000, 100000) }; if (!effect.amount) throw new Error("Enter the points."); }
+        if (kind === "bingo") effect = e.mode === "column" ? { mode: "column", column: int(e.column, 0, 4) } : { mode: "cell" };
+        if (kind === "note") {
+          const phase = ["ps", "build", "spin", "penalty", "presentation", "other"].includes(String(e.phase)) ? String(e.phase) : "other";
+          const perk = ["none", "no_penalty", "pass_penalty", "swap_ps"].includes(String(e.perk)) ? String(e.perk) : "none";
+          effect = { phase, perk };
+        }
         const row = {
           item_name: str(body.item_name, 80),
           description: typeof body.description === "string" ? body.description.trim().slice(0, 200) || null : null,
           base_points: int(body.base_points, 0),
           min_price: min, max_price: max,
           price_step: int(body.price_step ?? 10, 1, 100000),
-          quantity: int(body.quantity ?? 1, 1, 999),
-          powerup_id: body.powerup_id || null,
+          powerup_id: null,
+          kind, effect,
           is_active: body.is_active !== false,
         };
-        const q = body.id ? db.from("auction_items").update(row).eq("id", body.id) : db.from("auction_items").insert(row);
+        const q = body.id ? db.from("auction_items").update(row).eq("id", body.id) : db.from("auction_items").insert({ ...row, quantity: 1 });
         fail((await q).error);
-        return NextResponse.json({ ok: true, message: body.id ? "Lot updated" : "Lot added" });
+        return NextResponse.json({ ok: true, message: body.id ? "Card updated" : "Card added" });
+      }
+      case "item_copy": {
+        const { data, error } = await db.rpc("admin_copy_lot", { p_item_id: str(body.id) });
+        fail(error);
+        return NextResponse.json({ ok: true, message: "Copied — a new slot is open", data });
+      }
+      case "item_delete": {
+        const id = str(body.id);
+        const { data: sold } = await db.from("purchases").select("team_id,teams(bay)").eq("item_id", id);
+        if (!isHost && (sold ?? []).some((r: any) => r.teams?.bay !== myVenue)) throw new Error("This card was bought by a team in another venue. Ask a host to delete it.");
+        const { data: it } = await db.from("auction_items").select("item_name").eq("id", id).maybeSingle();
+        const { data, error } = await db.rpc("admin_delete_lot", { p_item_id: id });
+        fail(error);
+        const n = Number((data as { voided?: number } | null)?.voided ?? 0);
+        if (n) await log((sold ?? []).map((r: any) => ({ team_id: r.team_id, kind: "auction", action: "refunded", label: `Card deleted, sale voided: ${it?.item_name ?? "card"}` })));
+        return NextResponse.json({ ok: true, message: n ? `Deleted · ${n} sale(s) voided and refunded` : "Deleted" });
       }
       case "item_toggle": {
         fail((await db.from("auction_items").update({ is_active: Boolean(body.is_active) }).eq("id", str(body.id))).error);
@@ -450,7 +483,8 @@ export async function POST(request: Request) {
       }
       case "sell": {
         await requireLive(str(body.team_id), "auction");
-        const { data, error } = await db.rpc("admin_sell_lot", { p_item_id: str(body.item_id), p_team_id: str(body.team_id), p_price: int(body.price, 0), p_admin: user.id });
+        const cell = body.cell === undefined || body.cell === null || body.cell === "" ? null : int(body.cell, 0, 24);
+        const { data, error } = await db.rpc("admin_sell_lot", { p_item_id: str(body.item_id), p_team_id: str(body.team_id), p_price: int(body.price, 0), p_admin: user.id, p_cell: cell });
         fail(error);
         const { data: it } = await db.from("auction_items").select("item_name").eq("id", body.item_id).maybeSingle();
         await log({ team_id: body.team_id, kind: "auction", action: "sold", label: `Won lot: ${it?.item_name ?? "item"}`, points: -int(body.price, 0) });
@@ -459,8 +493,38 @@ export async function POST(request: Request) {
       case "undo_sale": {
         const { data: pr } = await db.from("purchases").select("team_id,purchase_price,auction_items(item_name)").eq("id", str(body.id)).maybeSingle();
         fail((await db.rpc("admin_undo_sale", { p_purchase_id: str(body.id) })).error);
-        if (pr) await log({ team_id: pr.team_id, kind: "auction", action: "refunded", label: `Sale reversed: ${(pr as any).auction_items?.item_name ?? "item"}`, points: Number(pr.purchase_price) });
-        return NextResponse.json({ ok: true, message: "Sale reversed, points refunded" });
+        if (pr) await log({ team_id: pr.team_id, kind: "auction", action: "refunded", label: `Sale voided: ${(pr as any).auction_items?.item_name ?? "item"}`, points: Number(pr.purchase_price) });
+        return NextResponse.json({ ok: true, message: "Sale voided · points refunded · card effects undone" });
+      }
+      case "trump_resolve": {
+        const cell = body.cell === undefined || body.cell === null || body.cell === "" ? null : int(body.cell, 0, 24);
+        const { data, error } = await db.rpc("admin_resolve_trump", { p_card: str(body.id), p_item_id: str(body.item_id), p_cell: cell, p_admin: user.id });
+        fail(error);
+        const { data: c } = await db.from("team_cards").select("team_id").eq("id", body.id).maybeSingle();
+        if (c) await log({ team_id: c.team_id, kind: "auction", action: "granted", label: `Trump card became: ${(data as { name?: string } | null)?.name ?? "card"}` });
+        return NextResponse.json({ ok: true, message: `Trump → ${(data as { name?: string } | null)?.name ?? "card"}` });
+      }
+
+      /* ---------------- problem statements ---------------- */
+      case "ps_set": {
+        const id = str(body.team_id);
+        const { data: t } = await db.from("teams").select("ps_locked").eq("id", id).maybeSingle();
+        if (t?.ps_locked) throw new Error("This problem statement was swapped and is final.");
+        const text = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
+        fail((await db.from("teams").update({ problem_statement: text || null }).eq("id", id)).error);
+        if (text) await log({ team_id: id, kind: "auction", action: "granted", label: `Problem statement: ${text.slice(0, 120)}` });
+        return NextResponse.json({ ok: true, message: text ? "Problem statement saved" : "Problem statement cleared" });
+      }
+      case "ps_swap": {
+        fail((await db.rpc("admin_swap_ps", { p_card: str(body.id), p_target: str(body.target_id), p_admin: user.id })).error);
+        return NextResponse.json({ ok: true, message: "Problem statements swapped · both are now final" });
+      }
+
+      /* ---------------- penalties ---------------- */
+      case "penalty": {
+        const { data, error } = await db.rpc("admin_penalty", { p_team: str(body.team_id), p_minutes: int(body.minutes ?? 0, 0, 600), p_points: int(body.points ?? 0, 0, 100000), p_reason: str(body.reason, 160), p_admin: user.id });
+        fail(error);
+        return NextResponse.json({ ok: true, message: (data as { message?: string } | null)?.message ?? "Penalty recorded" });
       }
 
       /* ---------------- power-ups ---------------- */

@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { CardKind, CardEffect } from "@/lib/cards";
 
 export type Activity = "auction" | "spin" | "bingo";
 export type StageStatus = "upcoming" | "live" | "closed";
@@ -10,8 +11,10 @@ export const ACTIVITIES: { key: Activity; label: string; verb: string }[] = [
 ];
 
 export type Stage = { team_id: string; activity: Activity; status: StageStatus; opened_at: string | null; closed_at: string | null; closing_points: number | null; closing_end_at: string | null };
-export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null };
-export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean };
+export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null; problem_statement: string | null; ps_locked: boolean };
+export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean; kind: CardKind; effect: CardEffect };
+export type TeamCard = { id: string; team_id: string; purchase_id: string | null; item_id: string | null; name: string; kind: CardKind; effect: CardEffect; source: string; status: string; detail: string | null; spent_at: string | null; created_at: string };
+export type Penalty = { id: string; team_id: string; landed_team_id: string | null; minutes: number; points: number; reason: string; outcome: string; detail: string | null; created_at: string };
 export type Powerup = { id: string; name: string; description: string | null; minutes_delta: number; targets_rival: boolean; color: string; is_active: boolean };
 export type TeamPowerup = { id: string; team_id: string; powerup_id: string | null; name: string; minutes_delta: number; target_team_id: string | null; source: string; note: string | null; used: boolean; created_at: string };
 export type Purchase = { id: string; team_id: string; item_id: string; purchase_price: number; created_at: string };
@@ -91,10 +94,10 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
   const tid = opts.teamId;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
-  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal] = await Promise.all([
-    db.from("teams").select("id,team_name,username,bay,paddle").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
+  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal, cards, pens] = await Promise.all([
+    db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
     db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
-    db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active").order("item_name"),
+    db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,created_at").order("created_at"),
     db.from("powerups").select("*").order("created_at"),
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
@@ -108,9 +111,12 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     own(db.from("team_members").select("id,team_id,role,full_name,usn,department,year,phone,email,college,checked_in")).order("role").order("created_at"),
     own(db.from("help_requests").select("id,team_id,message,status,created_at")).eq("status", "open").order("created_at"),
     db.rpc("team_balances"),
+    own(db.from("team_cards").select("id,team_id,purchase_id,item_id,name,kind,effect,source,status,detail,spent_at,created_at")).order("created_at"),
+    tid ? db.from("penalties").select("*").or(`team_id.eq.${tid},landed_team_id.eq.${tid}`).order("created_at", { ascending: false })
+        : db.from("penalties").select("*").order("created_at", { ascending: false }),
   ]);
-  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help].find(r => r.error)?.error;
-  if (firstError) throw new Error(firstError.message + " — run every SQL file in supabase/ in order (ui_rebuild → ui_v2 … ui_v6)");
+  const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, cards, pens].find(r => r.error)?.error;
+  if (firstError) throw new Error(firstError.message + " — run supabase/ui_v9_cards.sql (after ALL_IN_ONE.sql) in the Supabase SQL editor");
 
   const balances: Record<string, number> = {};
   if (!bal.error && Array.isArray(bal.data)) {
@@ -136,6 +142,10 @@ export async function loadWorld(opts: { teamId?: string } = {}) {
     help: (help.data ?? []) as Help[],
     settings: (settings.data ?? { portal_locked: false, portal_message: null, live_lots: {}, broadcasts: {}, hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
     balances,
+    cards: (cards.data ?? []) as TeamCard[],
+    penalties: (pens.data ?? []) as Penalty[],
+    /** Every sale in every venue (lots are shared, so 'sold' must count all of them). */
+    lotSales: ((purchases.data ?? []) as Purchase[]).map(p => ({ item_id: p.item_id, team_id: p.team_id, team_name: ((teams.data ?? []) as Team[]).find(t => t.id === p.team_id)?.team_name ?? "Team" })),
   };
 }
 export type World = Awaited<ReturnType<typeof loadWorld>>;
@@ -182,9 +192,15 @@ export function teamSlice(w: World, teamId: string) {
     catalogue: w.items.filter(i => i.is_active).map(i => {
       const pu = w.powerups.find(p => p.id === i.powerup_id);
       return { ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, mine: w.purchases.filter(p => p.item_id === i.id && p.team_id === teamId).length,
-        powerup: pu?.name ?? null, powerupMinutes: pu?.minutes_delta ?? null, powerupRival: pu?.targets_rival ?? false };
+        powerup: pu?.name ?? null, powerupMinutes: pu?.minutes_delta ?? null, powerupRival: pu?.targets_rival ?? false,
+        buyers: w.purchases.filter(p => p.item_id === i.id).map(p => names[p.team_id] ?? "Team") };
     }),
     venueKey: team?.bay || "all",
+    problemStatement: team?.problem_statement ?? null,
+    psLocked: team?.ps_locked ?? false,
+    cards: w.cards.filter(c => c.team_id === teamId),
+    penalties: w.penalties.filter(p => p.team_id === teamId || p.landed_team_id === teamId)
+      .map(p => ({ ...p, from_name: names[p.team_id] ?? "", landed_name: p.landed_team_id ? names[p.landed_team_id] ?? "" : null })),
     rank: w.settings.leaderboard_visible ? ranked.findIndex(t => t.id === teamId) + 1 : 0,
     teamCount: w.teams.length,
     leaderboard: w.settings.leaderboard_visible ? ranked.slice(0, 5).map(t => ({ id: t.id, name: t.team_name, points: w.balances[t.id] ?? 0 })) : null,

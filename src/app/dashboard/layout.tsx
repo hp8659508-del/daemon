@@ -16,7 +16,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const admin = profile.role === "admin";
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-graphite bg-white">
+      <header className="no-print sticky top-0 z-30 border-b border-graphite bg-white">
         <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-4 px-4 sm:px-6">
           <Link href="/dashboard" className="flex items-center gap-3">
             <LogoGlass size={46} logo />
