@@ -600,19 +600,20 @@ function Bingo({ w, cmd, paddle, stageOf, staff }: Ctx) {
         {staff.isHost && <div className="panel p-4">
           <h3 className="font-display mb-2">Rewards & bonuses</h3>
           <div className="grid grid-cols-2 gap-2">
-            <L t="Per column (pts)"><input className="field num" type="number" value={colBonus} onChange={e => setColBonus(e.target.value)} /></L>
+            <L t="Per line (pts)"><input className="field num" type="number" value={colBonus} onChange={e => setColBonus(e.target.value)} /></L>
             <L t="Full card (pts)"><input className="field num" type="number" value={fullBonus} onChange={e => setFullBonus(e.target.value)} /></L>
           </div>
           <div className="mt-3 space-y-2">{[...LETTERS, "FULL"].map(k => (
             <div key={k} className="grid grid-cols-[44px_1fr] items-center gap-2"><span className="font-display grid h-9 place-items-center border border-graphite text-sm">{k === "FULL" ? "★" : k}</span>
               <input className="field" placeholder={k === "FULL" ? "Reward for full card" : `Reward for striking ${k}`} value={rw[k] ?? ""} onChange={e => setRw({ ...rw, [k]: e.target.value })} /></div>))}</div>
           <button className="key-primary mt-3 w-full" onClick={() => cmd.run({ action: "settings", bingo_rewards: rw, bingo_line_bonus: colBonus, bingo_full_bonus: fullBonus })}>Save rewards</button>
-          <p className="mt-2 text-[11px] text-faint">Teams see the reward text under each letter. Bonus changes apply to columns completed after you save.</p>
+          <p className="mt-2 text-[11px] text-faint">Teams see the reward text under each letter. A team's first full row or column locks its direction; only lines in that direction earn this bonus.</p>
         </div>}
       </div>
       <div className="panel p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-2xl">{edit ? "Edit squares" : tName ? `Stamping · ${tName}` : "Bingo board"}</h2>
+          {!edit && team && (() => { const m = w.teams.find(x => x.id === team)?.bingo_mode; return <span className={`chip ${m ? "!bg-[#0E0B2B] !text-white" : ""}`}>{m === "rows" ? "Locked: ROWS only" : m === "columns" ? "Locked: COLUMNS only" : "Direction: decided by first full line"}</span>; })()}
           {staff.isHost && <button className="key key-sm" data-on={edit} onClick={() => setEdit(!edit)}><Pencil size={12} />{edit ? "Done editing" : "Edit squares"}</button>}
         </div>
         {edit ? <div className="grid grid-cols-5 gap-2">{w.cells.map(c => <CellEditor key={c.idx} c={c} cmd={cmd} />)}</div>

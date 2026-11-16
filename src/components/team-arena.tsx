@@ -286,17 +286,25 @@ function SpinLive({ v }: { v: TeamView }) {
 function BingoCard({ v }: { v: TeamView }) {
   const marked = new Set(v.marked);
   const free = new Set(v.cells.filter(c => c.is_free).map(c => c.idx));
-  const cols = COLUMNS.filter(col => col.every(i => marked.has(i) || free.has(i))).length;
+  const done = (l: number[]) => l.every(i => marked.has(i) || free.has(i));
+  const cols = COLUMNS.filter(done).length;
+  const rows = [0, 1, 2, 3, 4].map(r => [0, 1, 2, 3, 4].map(c => r * 5 + c)).filter(done).length;
   const full = cols === 5;
-  const pts = v.cells.filter(c => marked.has(c.idx)).reduce((a, c) => a + c.points, 0) + cols * v.lineBonus + (full ? v.fullBonus : 0);
+  const lines = v.bingoMode === "rows" ? rows : v.bingoMode === "columns" ? cols : 0;
+  const pts = v.cells.filter(c => marked.has(c.idx)).reduce((a, c) => a + c.points, 0) + lines * v.lineBonus + (full ? v.fullBonus : 0);
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
       <div className="panel p-4 sm:p-6"><BingoBoard cells={v.cells} marked={marked} rewards={v.rewards} /></div>
       <div className="space-y-4">
+        <div className={`panel p-4 ${v.bingoMode ? "bg-cobalt-wash" : ""}`}>
+          <p className="eyebrow">Your direction</p>
+          <p className="font-display mt-1 text-2xl font-black">{v.bingoMode === "rows" ? "ROWS ONLY" : v.bingoMode === "columns" ? "COLUMNS ONLY" : "Not decided yet"}</p>
+          <p className="mt-1 text-xs text-muted">{v.bingoMode ? `You finished a ${v.bingoMode === "rows" ? "row" : "column"} first, so only ${v.bingoMode} earn the line bonus for the rest of the round.` : "Your first full row or column decides: after that, only lines in that direction earn the bonus."}</p>
+        </div>
         <Readout icon={CheckCircle2} label="Dares cleared" value={`${v.marked.length} / ${v.cells.filter(c => !c.is_free).length}`} />
-        <Readout icon={Grid3x3} label="Letters struck" value={`${cols} / 5`} />
+        <Readout icon={Grid3x3} label={v.bingoMode === "rows" ? "Rows done" : "Columns done"} value={`${v.bingoMode === "rows" ? rows : cols} / 5`} />
         <Readout icon={Coins} label="Bingo points" value={`+${pts}`} />
-        <p className="text-xs leading-5 text-muted">Show a club member each dare and they&apos;ll stamp it here. Finish a column to strike its letter: <b className="num text-graphite">+{v.lineBonus}</b> each. Strike all five for the full card: <b className="num text-graphite">+{v.fullBonus}</b>.</p>
+        <p className="text-xs leading-5 text-muted">Show a club member each dare and they&apos;ll stamp it here. Each line in your direction earns <b className="num text-graphite">+{v.lineBonus}</b>. Strike all five for the full card: <b className="num text-graphite">+{v.fullBonus}</b>.</p>
       </div>
     </div>
   );
@@ -334,15 +342,15 @@ function Loadout({ v }: { v: TeamView }) {
       </div>
       <div className="panel p-5">
         <h3 className="font-display text-lg font-bold">Deadline timeline</h3>
-        <ol className="relative mt-4 space-y-4 border-l-2 border-dashed border-silver pl-5">
-          <li><span className="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-white bg-faint shadow" /><p className="text-xs text-muted">Official deadline</p><p className="num font-bold">{fmtTime(v.baseEnd)}</p></li>
+        <ol className="mt-4 space-y-5 border-l-2 border-dashed border-silver pl-6">
+          <li className="relative"><span className="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-white bg-faint shadow" /><p className="text-xs text-muted">Official deadline</p><p className="num font-bold">{fmtTime(v.baseEnd)}</p></li>
           {steps.map(({ p, at }) => (
-            <li key={p.id} className="animate-rise"><span className={`absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-white shadow ${p.minutes_delta > 0 ? "bg-ok" : "bg-err"}`} />
-              <p className="text-xs text-muted">{p.name} <span className="num">{fmtMins(p.minutes_delta)}</span></p><p className="num font-bold">{fmtTime(at)}</p></li>
+            <li key={p.id} className="animate-rise relative"><span className={`absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-white shadow ${p.minutes_delta > 0 ? "bg-ok" : "bg-err"}`} />
+              <p className="text-xs text-muted">{p.name} <span className="num font-semibold text-ok">{fmtMins(p.minutes_delta)}</span></p><p className="num font-bold">{v.baseEnd ? fmtTime(at) : "Set when the clock starts"}</p></li>
           ))}
-          <li><span className="absolute -left-[8px] mt-1 h-4 w-4 rounded-full border-2 border-white bg-cobalt shadow" /><p className="text-xs font-semibold text-cobalt-ink">Your deadline now</p><p className="num text-2xl font-black">{fmtTime(v.endAt)}</p></li>
+          <li className="relative"><span className="absolute -left-[33px] top-0.5 h-4 w-4 rounded-full border-2 border-white bg-cobalt shadow" /><p className="text-xs font-semibold text-cobalt-ink">Your deadline now</p><p className="num text-2xl font-black">{fmtTime(v.endAt)}</p></li>
           {pending.map(p => (
-            <li key={p.id} className="opacity-70"><span className="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-dashed border-cobalt bg-white" />
+            <li key={p.id} className="relative opacity-70"><span className="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-dashed border-cobalt bg-white" />
               <p className="text-xs text-muted">{p.name} <span className="num">{fmtMins(p.minutes_delta)}</span> · pending</p>
               <p className="text-[11px] text-faint">Added when the {p.source} round closes</p></li>
           ))}
