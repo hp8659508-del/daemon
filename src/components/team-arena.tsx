@@ -2,9 +2,10 @@
 
 import { effectText, kindLabel, phaseLabel } from "@/lib/cards";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
+import { Zap, Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
+import RapidFire from "@/components/rapid-fire";
 import RoundLedgers from "@/components/round-ledger";
 import { onLotFeed, type LotFeed } from "@/lib/realtime";
 import MemberTiles from "@/components/member-tiles";
@@ -14,6 +15,7 @@ import { useBroadcastSand } from "@/components/sand-clock";
 
 type Tab = Activity | "loadout" | "history" | "team";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
+  { key: "quiz", label: "Rapid Fire", icon: Zap },
   { key: "auction", label: "Auction", icon: Gavel },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
@@ -23,7 +25,7 @@ const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
 ];
 
 export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }) {
-  const firstLive = (["auction", "spin", "bingo"] as Activity[]).find(a => v.stages[a].status === "live");
+  const firstLive = (["quiz", "auction", "spin", "bingo"] as Activity[]).find(a => v.stages[a].status === "live");
   const [tab, setTab] = useState<Tab>(firstLive ?? "loadout");
   // Jump to a round the moment the admin opens it for this team.
   const prevLive = useRef(firstLive);
@@ -45,7 +47,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
       <Instrument v={v} paddle={paddle} />
 
       <div className="rail" role="tablist">
-        {TABS.map(t => {
+        {TABS.filter(t => t.key !== "quiz" || v.stages.quiz.status !== "upcoming").map(t => {
           const st = t.key === "loadout" || t.key === "history" || t.key === "team" ? null : v.stages[t.key].status;
           const Icon = t.icon;
           return (
@@ -59,6 +61,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
       </div>
 
       <div key={tab} className="animate-rise">
+        {tab === "quiz" && <RapidFire />}
         {tab === "auction" && <Stage v={v} a="auction"><AuctionLive v={v} paddle={paddle} /></Stage>}
         {tab === "spin" && <Stage v={v} a="spin"><SpinLive v={v} /></Stage>}
         {tab === "bingo" && <Stage v={v} a="bingo"><BingoCard v={v} /></Stage>}
@@ -157,6 +160,7 @@ function Readout({ icon: Icon, label, value }: { icon: typeof Coins; label: stri
 
 /* ---------------- Stage frame: upcoming / live / closed ---------------- */
 const BLURB: Record<Activity, { title: string; upcoming: string }> = {
+  quiz: { title: "Rapid Fire", upcoming: "A timed MCQ quiz, section by section." },
   auction: { title: "The Auction", upcoming: "Lots are bought with points by raising your paddle. The auctioneer records every sale for you; this screen only shows the results." },
   spin: { title: "Spin the Wheel", upcoming: "One trip to the wheel. Whatever it lands on is added to your loadout by the organisers." },
   bingo: { title: "Dare Bingo", upcoming: "Complete dares around campus and show a club member. Each cleared square earns points, and each full line earns a bonus." },

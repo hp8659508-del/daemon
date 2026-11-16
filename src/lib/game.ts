@@ -3,9 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { CardKind, CardEffect } from "@/lib/cards";
 import { buildLedger } from "@/lib/ledger";
 
-export type Activity = "auction" | "spin" | "bingo";
+export type Activity = "quiz" | "auction" | "spin" | "bingo";
 export type StageStatus = "upcoming" | "live" | "closed";
 export const ACTIVITIES: { key: Activity; label: string; verb: string }[] = [
+  { key: "quiz", label: "Rapid Fire", verb: "Answer it" },
   { key: "auction", label: "Auction", verb: "Bid it" },
   { key: "spin", label: "Spin", verb: "Spin it" },
   { key: "bingo", label: "Bingo", verb: "Bingo it" },
@@ -169,7 +170,7 @@ export function teamSlice(w: World, teamId: string) {
   return {
     team,
     balance: w.balances[teamId] ?? 0,
-    stages: { auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
+    stages: { quiz: stageFor("quiz"), auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
     purchases: w.purchases.filter(p => p.team_id === teamId).map(p => ({ ...p, item_name: w.items.find(i => i.id === p.item_id)?.item_name ?? "Item" })),
     txs: w.txs.filter(t => t.team_id === teamId).slice(0, 80),
     powerups: myPowerups.map(p => ({ ...p, confirmed: isConfirmed(p, w.stages) })),

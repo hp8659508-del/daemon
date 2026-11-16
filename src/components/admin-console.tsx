@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Users, Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords, Copy, Ban, ScrollText, FileDown, Printer } from "lucide-react";
+import { Users, Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords, Copy, Ban, ScrollText, FileDown, Printer, Zap } from "lucide-react";
 import type { World, Activity, StageStatus, Team } from "@/lib/game";
 import { useCommand, LiveSync, StatusLed, fmtTime, fmtMins, Empty, useNow, fmtClock } from "@/components/ui";
 import BingoBoard from "@/components/bingo-board";
 import { useBroadcastSand } from "@/components/sand-clock";
 import MemberTiles from "@/components/member-tiles";
 import Picker from "@/components/picker";
+import RapidFireAdmin from "@/components/rapid-fire-admin";
 import RoundLedgers from "@/components/round-ledger";
 import { buildLedger } from "@/lib/ledger";
 import { HistoryFeed } from "@/components/team-arena";
@@ -16,9 +17,10 @@ import { KINDS, PHASES, PERKS, effectText, kindLabel, boxName, type CardKind, ty
 import { sendLotFeed } from "@/lib/realtime";
 import { VENUES, UNASSIGNED, scopeWorld, venueKey, venueLabel } from "@/lib/venues";
 
-type Tab = "stages" | "cards" | "auction" | "spin" | "bingo" | "points" | "powerups" | "history" | "teams" | "event" | "staff";
+type Tab = "stages" | "quiz" | "cards" | "auction" | "spin" | "bingo" | "points" | "powerups" | "history" | "teams" | "event" | "staff";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "stages", label: "Rounds", icon: Layers },
+  { key: "quiz", label: "Rapid Fire", icon: Zap },
   { key: "auction", label: "Auction", icon: Gavel },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
@@ -67,7 +69,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
           <h1 className="font-display text-5xl">Daemon Hour <span className="text-faint">/ Live</span></h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="chip"><StatusLed status={liveCount(a) ? "live" : "closed"} /> {a} · {liveCount(a)}</span>)}
+          {(["quiz", "auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="chip"><StatusLed status={liveCount(a) ? "live" : "closed"} /> {a} · {liveCount(a)}</span>)}
           <LiveSync tables={["team_ledger", "team_cards", "penalties", "teams", "auction_items", "transactions", "purchases", "team_stages", "team_powerups", "team_bingo", "activity_log", "event_settings", "team_members", "help_requests"]} every={20000} />
         </div>
       </header>
@@ -106,6 +108,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
 
       <div key={tab} className="animate-rise">
         {tab === "stages" && <Stages {...ctx} />}
+        {tab === "quiz" && <RapidFireAdmin w={w} cmd={cmd} paddle={paddle} isHost={staff.isHost} />}
         {tab === "auction" && <Auction {...ctx} />}
         {tab === "spin" && <Spin {...ctx} />}
         {tab === "bingo" && <Bingo {...ctx} />}
@@ -195,13 +198,13 @@ function Stages({ w, cmd, paddle, stageOf }: Ctx) {
         <div className="mb-4 flex items-center justify-between"><h2 className="font-display text-lg font-bold">Who is playing what</h2>
           <div className="flex gap-3 text-xs text-muted"><span className="flex items-center gap-1"><StatusLed status="upcoming" />upcoming</span><span className="flex items-center gap-1"><StatusLed status="live" />live</span><span className="flex items-center gap-1"><StatusLed status="closed" />closed</span></div></div>
         <MultiTeams w={w} paddle={paddle} selected={sel} setSelected={setSel}
-          stageFilter={t => <span className="flex gap-1">{(["auction", "spin", "bingo"] as Activity[]).map(a => <StatusLed key={a} status={stageOf(t.id, a)} />)}</span>} />
+          stageFilter={t => <span className="flex gap-1">{(["quiz", "auction", "spin", "bingo"] as Activity[]).map(a => <StatusLed key={a} status={stageOf(t.id, a)} />)}</span>} />
         <p className="mt-3 text-[11px] text-faint">The three lights on each team show auction · spin · bingo, in that order.</p>
       </div>
       <div className="space-y-5">
         <div className="panel foil p-5">
           <p className="eyebrow">Apply to {sel.size} selected</p>
-          <div className="rail mt-3">{(["auction", "spin", "bingo", "all"] as const).map(a => <button key={a} aria-selected={act === a} onClick={() => setAct(a)}>{a === "all" ? "All rounds" : a}</button>)}</div>
+          <div className="rail mt-3">{(["quiz", "auction", "spin", "bingo", "all"] as const).map(a => <button key={a} aria-selected={act === a} onClick={() => setAct(a)}>{a === "all" ? "All of round 2" : a === "quiz" ? "Rapid Fire" : a}</button>)}</div>
           <div className="mt-4 grid grid-cols-3 gap-2">
             <button className="key" disabled={!sel.size || cmd.busy} onClick={() => set("upcoming")}><RotateCcw size={13} /> Reset</button>
             <button className="key-primary" disabled={!sel.size || cmd.busy} onClick={() => set("live")}>Open</button>
@@ -220,7 +223,7 @@ function Stages({ w, cmd, paddle, stageOf }: Ctx) {
         </div>
         <div className="panel p-5">
           <p className="eyebrow">Round board</p>
-          <div className="mt-3 space-y-2 text-sm">{(["auction", "spin", "bingo"] as Activity[]).map(a => {
+          <div className="mt-3 space-y-2 text-sm">{(["quiz", "auction", "spin", "bingo"] as Activity[]).map(a => {
             const c = (s: StageStatus) => w.teams.filter(t => stageOf(t.id, a) === s).length;
             return <div key={a} className="well flex items-center justify-between px-3 py-2"><span className="capitalize font-semibold">{a}</span><span className="num text-xs text-muted">{c("upcoming")} up · <b className="text-ok">{c("live")} live</b> · {c("closed")} done</span></div>;
           })}</div>
@@ -989,7 +992,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
                 <td className="p-3">{staff.isHost ? (
                   <div className="seg !p-0.5">{["", ...VENUES].map(v => <button key={v || "none"} type="button" className="!px-2 !py-1 !text-[10px]" data-on={(t.bay ?? "") === v} onClick={() => (t.bay ?? "") !== v && cmd.run({ action: "team_move", team_ids: [t.id], bay: v || null })}>{v ? v.split(" ")[0] : "None"}</button>)}</div>) : <span className="text-xs">{t.bay}</span>}</td>
                 <td className="num p-3 text-right font-semibold">{w.balances[t.id] ?? 0}</td>
-                <td className="p-3"><span className="flex gap-1">{(["auction", "spin", "bingo"] as Activity[]).map(a => <StatusLed key={a} status={stageOf(t.id, a)} />)}</span></td>
+                <td className="p-3"><span className="flex gap-1">{(["quiz", "auction", "spin", "bingo"] as Activity[]).map(a => <StatusLed key={a} status={stageOf(t.id, a)} />)}</span></td>
                 <td className="p-3"><div className="flex justify-end gap-1">
                   <button className="key key-sm" title="Reset password" onClick={() => { const pw = window.prompt(`New password for ${t.team_name} (min 6 chars). Leave blank for ${t.username}_123`, ""); if (pw !== null) cmd.run({ action: "team_password", team_id: t.id, password: pw }); }}><KeyRound size={12} /></button>
                   <button className="key key-sm" title="Delete team" onClick={() => { setDel([t.id]); setConfirmTxt(""); }}><Trash2 size={12} /></button>
@@ -1058,7 +1061,7 @@ function TeamDrawer({ w, cmd, paddle, stageOf, staff, teamId, secret, close, onD
 
         <div className="mt-5 grid gap-3 sm:grid-cols-4">
           <div className="panel-tight p-3"><p className="eyebrow">Points</p><p className="num text-2xl font-bold">{w.balances[t.id] ?? 0}</p></div>
-          <div className="panel-tight p-3"><p className="eyebrow">Rounds</p><p className="mt-2 flex gap-1.5">{(["auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="flex items-center gap-1 text-[10px] uppercase"><StatusLed status={stageOf(t.id, a)} />{a[0]}</span>)}</p></div>
+          <div className="panel-tight p-3"><p className="eyebrow">Rounds</p><p className="mt-2 flex gap-1.5">{(["quiz", "auction", "spin", "bingo"] as Activity[]).map(a => <span key={a} className="flex items-center gap-1 text-[10px] uppercase"><StatusLed status={stageOf(t.id, a)} />{a[0]}</span>)}</p></div>
           <div className="panel-tight p-3"><p className="eyebrow">Power-ups</p><p className="num text-2xl font-bold">{tps.filter(p => p.team_id === t.id).length}</p></div>
           <div className="panel-tight p-3"><p className="eyebrow">Bingo</p><p className="num text-2xl font-bold">{w.marks.filter(m => m.team_id === t.id).length}/24</p></div>
         </div>

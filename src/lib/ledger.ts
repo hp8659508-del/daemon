@@ -3,7 +3,7 @@
  * and deadline changes), so it always shows the full history, oldest first, with
  * points and deadline minutes BEFORE and AFTER each ability. Client-safe.
  */
-export type LRound = "auction" | "spin" | "bingo" | "penalty" | "other";
+export type LRound = "quiz" | "auction" | "spin" | "bingo" | "penalty" | "other";
 export type LRow = { id: string; round: LRound; label: string; created_at: string; points_before: number; points_after: number; minutes_before: number; minutes_after: number };
 
 type Tx = { id: string; team_id: string; description: string; points: number; created_at: string };
@@ -21,7 +21,8 @@ export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] 
     const d = t.description || "";
     let round: LRound = "other";
     if (/^Starting points/i.test(d)) { ev.push({ id: t.id, at: +new Date(t.created_at), iso: t.created_at, round, label: d, dp: t.points, dm: 0, base: true }); continue; }
-    if (/^Auction:/i.test(d)) round = "auction";
+    if (/^Rapid fire:/i.test(d)) round = "quiz";
+    else if (/^Auction:/i.test(d)) round = "auction";
     else if (/^Card:/i.test(d)) round = spinNames.has(strip(d)) ? "spin" : "auction";
     else if (/^Bingo/i.test(d)) round = "bingo";
     else if (/^Penalty:/i.test(d)) round = "penalty";

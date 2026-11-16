@@ -9,6 +9,7 @@ import { useState } from "react";
 export type LedgerRowLite = { id: string; round: string; label: string; points_before: number; points_after: number; minutes_before: number; minutes_after: number; created_at: string };
 
 const ROUNDS = [
+  { key: "quiz", label: "Rapid Fire" },
   { key: "auction", label: "Auction" },
   { key: "spin", label: "Spin wheel" },
   { key: "bingo", label: "Bingo" },
