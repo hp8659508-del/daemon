@@ -18,12 +18,29 @@ export default function RapidFireAdmin({ w, cmd, paddle, isHost }: { w: World; c
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [editQ, setEditQ] = useState<Partial<Q> | null>(null);
   const [editS, setEditS] = useState<Partial<Sec> | null>(null);
-  const load = useCallback(async () => { const j = await cmd.run({ action: "quiz_admin" }, { quiet: true }); if (j?.data) setD(j.data); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
+  const [loadErr, setLoadErr] = useState("");
+  // Read-only fetch: must NOT go through cmd.run (that refreshes every team screen).
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "quiz_admin" }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Server busy (${r.status})`);
+      setD(j.data); setLoadErr("");
+    } catch (e) { setLoadErr(e instanceof Error ? e.message : "Could not load"); }
+  }, []);
+  useEffect(() => {
+    load();
+    const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 15000);
+    return () => clearInterval(t);
+  }, [load]);
   const act = async (p: Record<string, unknown>) => { if (await cmd.run(p)) load(); };
   const stage = (t: string) => (w.stages.find(s => s.team_id === t && s.activity === "quiz")?.status ?? "upcoming");
   const all = sel.size === w.teams.length && w.teams.length > 0;
-  if (!d) return <div className="panel p-6 text-sm text-muted">Loading Rapid Fire… (run ui_v12_rapid_fire.sql if this stays)</div>;
+  if (!d) return (
+    <div className="panel flex flex-wrap items-center gap-3 p-6 text-sm text-muted">
+      {loadErr ? <>Couldn&apos;t load Rapid Fire: <b className="text-err">{loadErr}</b><button className="key key-sm" onClick={load}>Retry</button></> : "Loading Rapid Fire…"}
+    </div>
+  );
   const total = (team: string) => d.runs.filter(r => r.team_id === team).reduce((a, r) => a + (r.points ?? 0), 0);
 
   return (

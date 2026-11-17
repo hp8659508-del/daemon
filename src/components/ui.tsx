@@ -80,6 +80,8 @@ export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables
 
 /* ---------- Admin command helper with toast ---------- */
 type Toast = { id: number; text: string; bad?: boolean };
+const READ_ONLY = new Set(["quiz_admin", "health", "live_lot", "staff_list", "secrets"]);
+
 export function useCommand() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -96,6 +98,8 @@ export function useCommand() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Action failed");
       if (!opts.quiet) push(j.message || "Done");
+      // read-only lookups change nothing: don't refresh this page or wake any team screens
+      if (READ_ONLY.has(String(payload.action))) return j;
       router.refresh();
       // Tell every screen right away. Team-scoped actions only wake those teams.
       const ids = Array.isArray(payload.team_ids) ? payload.team_ids as string[]
