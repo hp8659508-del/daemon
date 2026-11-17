@@ -5,7 +5,7 @@ import { kindLabel, phaseLabel, perkLabel, effectText } from "@/lib/cards";
 import type { Staff } from "@/lib/staff";
 
 export type EvalTeam = {
-  no: number; name: string; venue: string; ps: string; psFinal: boolean; points: number; deadline: string | null; minutes: number;
+  no: number; name: string; venue: string; ps: string; psFinal: boolean; points: number; auctionLeft: number; deadline: string | null; minutes: number;
   cards: { name: string; type: string; when: string; rule: string; effect: string; status: string; detail: string; price: number | null; via: string; at: string }[];
   penalties: { reason: string; minutes: number; points: number; result: string; at: string }[];
 };
@@ -20,7 +20,7 @@ export async function buildEval(staff: Staff): Promise<{ teams: EvalTeam[]; gene
     const mins = minutesFor(t.id, full.teamPowerups, full.stages);
     return {
       no: t.paddle ?? i + 1, name: t.team_name, venue: t.bay ?? "—",
-      ps: t.problem_statement ?? "", psFinal: t.ps_locked, points: w.balances[t.id] ?? 0,
+      ps: t.problem_statement ?? "", psFinal: t.ps_locked, points: w.balances[t.id] ?? 0, auctionLeft: full.auctionBalances[t.id] ?? full.auctionBudget,
       deadline: projectedEnd(full.settings.hackathon_end_at, mins), minutes: mins,
       cards: w.cards.filter(c => c.team_id === t.id).map(c => ({
         name: c.name, type: kindLabel(c.kind),
@@ -48,10 +48,10 @@ const ist = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-IN",
 export const fmtIST = ist;
 
 export function evalCsv(teams: EvalTeam[]) {
-  const head = ["Team #", "Team", "Venue", "Problem statement", "PS final (swapped)", "Auction points", "Final deadline (IST)", "Minutes added", "Row", "Card / penalty", "Type", "When it applies", "Rule", "Effect", "Status / result", "Detail", "Bought for", "Got it via", "Time (IST)"];
+  const head = ["Team #", "Team", "Venue", "Problem statement", "PS final (swapped)", "Points (score)", "Auction wallet left", "Final deadline (IST)", "Minutes added", "Row", "Card / penalty", "Type", "When it applies", "Rule", "Effect", "Status / result", "Detail", "Bought for", "Got it via", "Time (IST)"];
   const rows: (string | number)[][] = [];
   for (const t of teams) {
-    const base = [t.no, t.name, t.venue, t.ps, t.psFinal ? "Yes" : "No", t.points, ist(t.deadline), t.minutes];
+    const base = [t.no, t.name, t.venue, t.ps, t.psFinal ? "Yes" : "No", t.points, t.auctionLeft, ist(t.deadline), t.minutes];
     if (!t.cards.length && !t.penalties.length) rows.push([...base, "Summary", "", "", "", "", "", "", "", "", "", ""]);
     for (const c of t.cards) rows.push([...base, "Card", c.name, c.type, c.when, c.rule, c.effect, c.status, c.detail, c.price ?? "", c.via, ist(c.at)]);
     for (const p of t.penalties) rows.push([...base, "Penalty", p.reason, "Penalty", "", "", [p.minutes ? `-${p.minutes} min` : "", p.points ? `-${p.points} pts` : ""].filter(Boolean).join(" "), p.result, "", "", "", ist(p.at)]);

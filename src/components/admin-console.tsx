@@ -126,7 +126,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
 }
 
 /* ============================ shared pickers ============================ */
-function TeamPicker({ w, paddle, value, onChange, filter, balanceOf }: { w: World; paddle: Record<string, number>; value: string; onChange: (id: string) => void; filter?: (t: Team) => boolean; balanceOf?: boolean }) {
+function TeamPicker({ w, paddle, value, onChange, filter, balanceOf, wallet }: { w: World; paddle: Record<string, number>; value: string; onChange: (id: string) => void; filter?: (t: Team) => boolean; balanceOf?: boolean; wallet?: "auction" }) {
   const [q, setQ] = useState("");
   const list = w.teams.filter(t => (!filter || filter(t)) && (q === "" || t.team_name.toLowerCase().includes(q.toLowerCase()) || String(paddle[t.id]) === q.trim()));
   return (
@@ -138,7 +138,7 @@ function TeamPicker({ w, paddle, value, onChange, filter, balanceOf }: { w: Worl
           <button key={t.id} onClick={() => onChange(t.id)} className="key key-sm justify-start" data-on={value === t.id}>
             <span className="num w-6 text-left text-faint">{String(paddle[t.id]).padStart(2, "0")}</span>
             <span className="min-w-0 flex-1 truncate text-left">{t.team_name}</span>
-            {balanceOf && <span className="num text-faint">{w.balances[t.id] ?? 0}</span>}
+            {balanceOf && <span className="num text-faint" title={wallet === "auction" ? "Auction points left" : "Points"}>{wallet === "auction" ? (w.auctionBalances[t.id] ?? w.auctionBudget) : (w.balances[t.id] ?? 0)}</span>}
             {value === t.id && <Check size={13} className="text-cobalt-ink" />}
           </button>
         ))}
@@ -262,7 +262,7 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
   };
   const choose = (id: string) => { const it = items.find(i => i.id === id); setItemId(id); const p = it?.min_price ?? it?.base_points ?? 0; setPrice(p); setTeam(""); setCell(null); broadcast(id, p); };
   const bump = (d: number) => { const p = clamp(price + d); setPrice(p); if (item) broadcast(item.id, p); };
-  const bal = team ? w.balances[team] ?? 0 : 0;
+  const bal = team ? (w.auctionBalances[team] ?? w.auctionBudget) : 0;   // auction wallet, not main points
   const needsCell = item?.kind === "bingo" && item.effect?.mode !== "column";
   const teamMarks = new Set(w.marks.filter(m => m.team_id === team).map(m => m.idx));
   const sell = async () => {
@@ -320,7 +320,7 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
             </div>
           )}
           <div className="mt-6 flex items-center gap-3">
-            <div className="well flex-1 px-4 py-3 text-sm">{team ? <>Winner <b>#{paddle[team]} {name(team)}</b> · balance <span className={`num font-bold ${bal >= price ? "text-ok" : "text-err"}`}>{bal}</span></> : <span className="text-muted">Select the winning paddle →</span>}</div>
+            <div className="well flex-1 px-4 py-3 text-sm">{team ? <>Winner <b>#{paddle[team]} {name(team)}</b> · auction wallet <span className={`num font-bold ${bal >= price ? "text-ok" : "text-err"}`}>{bal}</span></> : <span className="text-muted">Select the winning paddle →</span>}</div>
             <button className="key-primary key-lg" disabled={!team || cmd.busy || bal < price || soldOf(item.id) >= item.quantity || (needsCell && cell === null)} onClick={sell}><Hammer size={18} /> Sold</button>
           </div>
           <button className="key key-sm mt-3" onClick={() => { sendLotFeed({ venue: vkey, item_id: null, price: 0 }); if (pushT.current) clearTimeout(pushT.current); persistLot(null); cmd.toast("Lot cleared from screens"); }}>Clear lot from {venueLabel(scope)} screens</button>
@@ -332,7 +332,7 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
         <div className="panel p-4">
           <div className="mb-2 flex items-center justify-between"><h3 className="font-display font-bold">Winning paddle</h3>
             <label className="flex items-center gap-1.5 text-xs text-muted"><input type="checkbox" checked={onlyLive} onChange={e => setOnlyLive(e.target.checked)} /> live only</label></div>
-          <TeamPicker w={w} paddle={paddle} value={team} onChange={id => { setTeam(id); setCell(null); }} balanceOf filter={onlyLive ? t => stageOf(t.id, "auction") === "live" : undefined} />
+          <TeamPicker w={w} paddle={paddle} value={team} onChange={id => { setTeam(id); setCell(null); }} balanceOf wallet="auction" filter={onlyLive ? t => stageOf(t.id, "auction") === "live" : undefined} />
         </div>
         <div className="panel p-4">
           <h3 className="font-display mb-2 font-bold">Recent sales</h3>
@@ -1143,6 +1143,7 @@ function SystemCheck({ cmd }: Pick<Ctx, "cmd">) {
 function PortalPanel({ w, cmd, staff }: Pick<Ctx, "w" | "cmd" | "staff">) {
   const [msg, setMsg] = useState(w.settings.portal_message ?? "");
   const [sp, setSp] = useState(String(w.settings.starting_points ?? 0));
+  const [ab, setAb] = useState(String(w.auctionBudget ?? 1000));
   if (!staff.isHost) return null;
   return (
     <div className="panel p-5">
@@ -1156,14 +1157,18 @@ function PortalPanel({ w, cmd, staff }: Pick<Ctx, "w" | "cmd" | "staff">) {
       <hr className="my-4 border-silver/30" />
       <p className="eyebrow">Starting points</p>
       <div className="mt-2 flex gap-2"><input className="field num" type="number" min={0} value={sp} onChange={e => setSp(e.target.value)} /><button className="key" onClick={() => cmd.run({ action: "settings", starting_points: sp })}>Save</button></div>
-      <p className="mt-1 text-[11px] text-faint">New teams get this many points. To give it to everyone again, use Reset → “Give starting points”.</p>
+      <p className="mt-1 text-[11px] text-faint">Main points new teams get. To give it to everyone again, use Reset → “Give starting points”.</p>
+      <hr className="my-4 border-silver/30" />
+      <p className="eyebrow">Auction wallet</p>
+      <div className="mt-2 flex gap-2"><input className="field num" type="number" min={0} value={ab} onChange={e => setAb(e.target.value)} /><button className="key" onClick={() => cmd.run({ action: "settings", auction_budget: ab })}>Save</button></div>
+      <p className="mt-1 text-[11px] text-faint">Auction points every team starts with. Used only to pay for auction cards and kept apart from main points. Changing it updates every team&apos;s wallet at once (what they already spent stays spent).</p>
     </div>
   );
 }
 
 const RESET_PARTS: { key: string; label: string; note: string; global?: boolean }[] = [
-  { key: "points", label: "Points → 0", note: "Deletes every ledger entry (also clears auction wins)" },
-  { key: "purchases", label: "Auction wins", note: "Removes sold lots, refunds their price and the power-ups they gave" },
+  { key: "points", label: "Points → 0", note: "Main points back to 0 (the auction wallet is separate)" },
+  { key: "purchases", label: "Auction wins", note: "Removes sold cards and their effects; the auction wallet goes back to full" },
   { key: "powerups", label: "Power-ups", note: "All granted, spun and rival power-ups" },
   { key: "bingo", label: "Bingo marks", note: "Every stamped square" },
   { key: "rounds", label: "Rounds → upcoming", note: "Auction, spin and bingo all back to upcoming" },

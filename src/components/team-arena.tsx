@@ -142,7 +142,7 @@ function Instrument({ v, paddle }: { v: TeamView; paddle: number }) {
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-          <Readout icon={Coins} label={v.pointsProvisional ? "Points · provisional" : "Points · confirmed"} value={v.balance.toLocaleString("en-IN")} />
+          <Readout icon={Coins} label="Points" value={v.balance.toLocaleString("en-IN")} />
           <Readout icon={Trophy} label="Standing" value={v.leaderboard ? `#${v.rank} / ${v.teamCount}` : "Hidden"} />
         </div>
       </div>
@@ -217,10 +217,23 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
   const prevPrice = useRef(price);
   const [flash, setFlash] = useState(false);
   useEffect(() => { if (prevPrice.current !== price) { setFlash(true); const t = setTimeout(() => setFlash(false), 600); prevPrice.current = price; return () => clearTimeout(t); } }, [price]);
-  const canAfford = v.balance >= price;
+  const wallet = v.auctionBalance;            // auction points: separate from the team score
+  const canAfford = wallet >= price;
   return (
     <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
       <div className="space-y-5">
+        <div className="panel flex flex-wrap items-center gap-4 p-4">
+          <Coins size={20} className="text-[#6B4BFF]" />
+          <div className="min-w-0 flex-1">
+            <p className="eyebrow">Auction wallet</p>
+            <p className="text-xs text-muted">Only for bidding. It doesn&apos;t count toward your score. Cards that <b>give</b> points add to your main points.</p>
+          </div>
+          <div className="text-right">
+            <p className="num text-3xl font-bold">{wallet.toLocaleString("en-IN")}</p>
+            <p className="text-[10px] text-faint">of {v.auctionBudget.toLocaleString("en-IN")}</p>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#ECEEFF]"><div className="h-full rounded-full bg-[#6B4BFF] transition-all duration-700" style={{ width: `${Math.max(0, Math.min(100, (wallet / Math.max(1, v.auctionBudget)) * 100))}%` }} /></div>
+        </div>
         {live && (
           <div className="panel foil p-6">
             <div className="flex items-center justify-between"><p className="eyebrow">On the block</p><span className="chip"><span className="led led-live" /> live</span></div>
@@ -235,7 +248,7 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
                 <div className={`lcd px-6 py-4 text-right transition-colors ${flash ? "animate-flash" : ""}`}>
                   <p className="text-[10px] font-bold uppercase tracking-[.2em] opacity-70">Current price</p>
                   <p className="text-5xl font-bold tabular-nums">{price.toLocaleString("en-IN")}</p>
-                  <p className={`mt-1 text-xs font-semibold ${canAfford ? "text-ok" : "text-err"}`}>{canAfford ? "You can afford this" : `You're ${price - v.balance} short`}</p>
+                  <p className={`mt-1 text-xs font-semibold ${canAfford ? "text-ok" : "text-err"}`}>{canAfford ? "You can afford this" : `You're ${price - wallet} short`}</p>
                 </div>
               </div>
             ) : <p className="mt-4 text-sm text-muted">The auctioneer is setting up the next lot…</p>}
@@ -252,7 +265,7 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
           <p className="mt-3 text-xs text-muted">The auctioneer records the sale. Your points update here right away.</p>
         </div>
         <div className="panel p-5">
-          <div className="flex items-center justify-between"><h3 className="font-display font-bold">Your wins</h3><span className="num text-sm text-muted">−{spent.toLocaleString("en-IN")} pts</span></div>
+          <div className="flex items-center justify-between"><h3 className="font-display font-bold">Your wins</h3><span className="num text-sm text-muted">−{spent.toLocaleString("en-IN")} auction pts</span></div>
           <div className="mt-3 space-y-2">
             {v.purchases.length === 0 ? <p className="text-sm text-muted">Nothing won yet.</p> : v.purchases.map(p => (
               <div key={p.id} className="well flex items-center gap-3 px-4 py-2.5 text-sm"><span className="min-w-0 flex-1 truncate font-medium">{p.item_name}</span><span className="num shrink-0">−{p.purchase_price}</span></div>

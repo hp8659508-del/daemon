@@ -274,7 +274,12 @@ export async function POST(request: Request) {
           if (txIds.length) await db.from("transactions").delete().in("id", txIds); // refund what was spent
           done.push("auction wins (refunded)");
         }
-        if (parts.includes("points")) { await del("transactions"); done.push("points → 0"); }
+        if (parts.includes("points")) {
+          // main points only; the auction wallet is reset by "Auction wins"
+          const { error } = await db.from("transactions").delete().in("team_id", teamIds).eq("wallet", "main");
+          if (error) await del("transactions");            // wallet column not there yet: old behaviour
+          done.push("points → 0");
+        }
         if (parts.includes("powerups")) { await del("team_powerups"); await db.from("team_powerups").delete().in("target_team_id", teamIds); done.push("power-ups"); }
         if (parts.includes("bingo")) { await del("team_bingo"); done.push("bingo marks"); }
         if (parts.includes("rounds")) { await del("team_stages"); done.push("rounds → upcoming"); }
@@ -473,6 +478,7 @@ export async function POST(request: Request) {
         if ("portal_locked" in body) patch.portal_locked = Boolean(body.portal_locked);
         if ("portal_message" in body) patch.portal_message = typeof body.portal_message === "string" ? body.portal_message.slice(0, 200) || null : null;
         if ("starting_points" in body) patch.starting_points = int(body.starting_points, 0, 1000000);
+        if ("auction_budget" in body) patch.auction_budget = int(body.auction_budget, 0, 10000000);
         if ("leaderboard_visible" in body) patch.leaderboard_visible = Boolean(body.leaderboard_visible);
         if ("live_lot" in body) patch.live_lot = body.live_lot ? { item_id: str(body.live_lot.item_id), price: int(body.live_lot.price, 0), team_ids: Array.isArray(body.live_lot.team_ids) ? body.live_lot.team_ids : undefined } : null;
         fail((await db.from("event_settings").update(patch).eq("id", true)).error);

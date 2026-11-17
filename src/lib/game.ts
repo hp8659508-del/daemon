@@ -21,12 +21,12 @@ export type Penalty = { id: string; team_id: string; landed_team_id: string | nu
 export type Powerup = { id: string; name: string; description: string | null; minutes_delta: number; targets_rival: boolean; color: string; is_active: boolean };
 export type TeamPowerup = { id: string; team_id: string; powerup_id: string | null; name: string; minutes_delta: number; target_team_id: string | null; source: string; note: string | null; used: boolean; created_at: string };
 export type Purchase = { id: string; team_id: string; item_id: string; purchase_price: number; created_at: string };
-export type Tx = { id: string; team_id: string; description: string; points: number; created_at: string };
+export type Tx = { id: string; team_id: string; description: string; points: number; created_at: string; wallet?: "main" | "auction" };
 export type Activity_ = { id: string; team_id: string | null; kind: string; action: string; label: string; points: number | null; minutes: number | null; created_at: string };
 export type Member = { id: string; team_id: string; role: "lead" | "member"; full_name: string; usn: string | null; department: string | null; year: string | null; phone: string | null; email: string | null; college: string | null; checked_in: boolean };
 export type Help = { id: string; team_id: string; message: string | null; status: string; created_at: string };
 export type Cell = { idx: number; label: string; points: number; is_free: boolean };
-export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null };
+export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null; auction_budget?: number };
 
 export const LINES = [
   [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
@@ -78,7 +78,7 @@ export function projectedEnd(base: string | null, minutes: number) {
 async function allTransactions(db: ReturnType<typeof createAdminClient>) {
   const rows: Tx[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from("transactions").select("id,team_id,description,points,created_at").order("created_at", { ascending: false }).range(from, from + 999);
+    const { data, error } = await db.from("transactions").select("*").order("created_at", { ascending: false }).range(from, from + 999);
     if (error) return { data: null, error };
     rows.push(...((data ?? []) as Tx[]));
     if (!data || data.length < 1000) break;
@@ -107,7 +107,7 @@ function fetchShared(db: ReturnType<typeof createAdminClient>) {
     db.from("powerups").select("*").order("created_at"),
     db.from("purchases").select("id,team_id,item_id,purchase_price,created_at").order("created_at", { ascending: false }),
     db.from("bingo_cells").select("*").order("idx"),
-    db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
+    db.from("event_settings").select("*").eq("id", true).maybeSingle(),
     db.rpc("team_balances"),
   ]);
 }
@@ -158,7 +158,7 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
   const [[teams, stages, items, powerups, purchases, cells, settings, bal], [tps, txs, marks, activity, members, help, cards, pens, ledger]] = await Promise.all([sharedP, Promise.all([
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
-    tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(3000)
+    tid ? db.from("transactions").select("*").eq("team_id", tid).order("created_at", { ascending: false }).limit(3000)
         : allTransactions(db),
     own(db.from("team_bingo").select("team_id,idx,marked_at")),
     own(db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at")).order("created_at", { ascending: false }).limit(tid ? 300 : 1000),
@@ -178,8 +178,14 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
   } else {
     // ui_v6 not run yet: fall back to summing the ledger ourselves
     const all = await allTransactions(db);
-    for (const t of (all.data ?? []) as Tx[]) balances[t.team_id] = (balances[t.team_id] ?? 0) + Number(t.points ?? 0);
+    for (const t of (all.data ?? []) as Tx[]) if ((t.wallet ?? "main") === "main") balances[t.team_id] = (balances[t.team_id] ?? 0) + Number(t.points ?? 0);
   }
+  // Auction wallet: the budget every team starts with + what it spent / got refunded at the auction.
+  // Separate from main points. (Admin loads have every transaction; team loads have their own.)
+  const budget = Number((settings.data as { auction_budget?: number } | null)?.auction_budget ?? 1000);
+  const auctionBalances: Record<string, number> = {};
+  for (const t of (teams.data ?? []) as Team[]) auctionBalances[t.id] = budget;
+  for (const t of (txs.data ?? []) as Tx[]) if (t.wallet === "auction") auctionBalances[t.team_id] = (auctionBalances[t.team_id] ?? budget) + Number(t.points ?? 0);
 
   return {
     teams: (teams.data ?? []) as Team[],
@@ -196,6 +202,8 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
     help: (help.data ?? []) as Help[],
     settings: (settings.data ?? { portal_locked: false, portal_message: null, live_lots: {}, broadcasts: {}, hackathon_started_at: null, clock_paused_at: null, bingo_full_bonus: 100, bingo_rewards: {}, hackathon_end_at: null, live_lot: null, broadcast: null, bingo_line_bonus: 50, leaderboard_visible: false, starting_points: 0 }) as Settings,
     balances,
+    auctionBalances,
+    auctionBudget: budget,
     cards: (cards.data ?? []) as TeamCard[],
     penalties: (pens.data ?? []) as Penalty[],
     ledger: (ledger.data ?? []) as LedgerRow[],
@@ -220,6 +228,8 @@ export function teamSlice(w: World, teamId: string) {
   return {
     team,
     balance: w.balances[teamId] ?? 0,
+    auctionBalance: w.auctionBalances[teamId] ?? w.auctionBudget,
+    auctionBudget: w.auctionBudget,
     stages: { quiz: stageFor("quiz"), auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
     purchases: w.purchases.filter(p => p.team_id === teamId).map(p => ({ ...p, item_name: w.items.find(i => i.id === p.item_id)?.item_name ?? "Item" })),
     txs: w.txs.filter(t => t.team_id === teamId).slice(0, 80),
