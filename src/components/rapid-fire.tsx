@@ -38,7 +38,7 @@ export default function RapidFire() {
     try { const j = await call(body); skew.current = new Date(j.now).getTime() - Date.now(); setS(j); setErr(""); }
     catch (e) { setErr(e instanceof Error ? e.message : "Error"); }
   }, []);
-  useEffect(() => { load(); const t = setInterval(() => load(), 15000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 15000 + Math.random() * 10000); return () => clearInterval(t); }, [load]);
 
   if (!s) return <div className="panel grid place-items-center p-16 text-sm text-muted">{err || "Loading Rapid Fire…"}</div>;
   if (s.active) return <QuizScreen key={s.active.id} s={s} skew={skew.current} reload={load} />;

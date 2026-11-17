@@ -32,18 +32,20 @@ export function fmtMins(m: number) { return `${m > 0 ? "+" : m < 0 ? "−" : "±
 export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables: string[]; every?: number; jitter?: number; teamId?: string }) {
   const router = useRouter();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRefresh = useRef(0);
   const [state, setState] = useState<"live" | "polling">("polling");
   const bump = useCallback(() => {
     if (pending.current) return;
     // jitter spreads 40 screens' refreshes over a short window instead of one spike
-    pending.current = setTimeout(() => { pending.current = null; router.refresh(); }, 350 + Math.random() * jitter);
+    const since = Date.now() - lastRefresh.current;
+    pending.current = setTimeout(() => { pending.current = null; lastRefresh.current = Date.now(); router.refresh(); }, Math.max(350, 4000 - since) + Math.random() * Math.max(jitter, 3000));
   }, [router, jitter]);
   const liveRef = useRef(false);
   // Instant path: the admin's refresh pulse arrives over the broadcast hub (~100 ms).
   useEffect(() => onRefreshPulse(p => {
     if (teamId && p?.teams && !p.teams.includes(teamId)) return;
-    setTimeout(() => router.refresh(), Math.random() * 250);
-  }), [router, teamId]);
+    bump();
+  }), [bump, teamId]);
   useEffect(() => onHubReady(ok => { if (ok) { liveRef.current = true; setState("live"); } }), []);
   useEffect(() => {
     const supabase = createClient();
@@ -52,7 +54,7 @@ export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables
     const GLOBAL = new Set(["event_settings", "auction_items", "powerups", "bingo_cells"]);
     tables.forEach(t => {
       const cfg: Record<string, string> = { event: "*", schema: "public", table: t };
-      if (teamId && !GLOBAL.has(t)) cfg.filter = `team_id=eq.${teamId}`;
+      if (teamId && !GLOBAL.has(t)) cfg.filter = t === "teams" ? `id=eq.${teamId}` : `team_id=eq.${teamId}`;
       ch.on("postgres_changes" as never, cfg as never, bump as never);
     });
     ch.subscribe(status => { const ok = status === "SUBSCRIBED"; liveRef.current = ok || liveRef.current; setState(ok ? "live" : liveRef.current ? "live" : "polling"); });
@@ -61,10 +63,10 @@ export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables
     const tick = () => {
       if (document.visibilityState === "visible") router.refresh();
       // Safety net only: realtime + pulses do the real work. 20 s when healthy, `every` (≈6 s) if not.
-      timer = setTimeout(tick, (liveRef.current ? Math.max(every * 2, 20000) : every) + Math.random() * jitter);
+      timer = setTimeout(tick, (liveRef.current ? Math.max(every * 5, 30000) : Math.max(every * 2, 15000)) + Math.random() * Math.max(jitter, 5000));
     };
     timer = setTimeout(tick, every + Math.random() * jitter);
-    const onFocus = () => router.refresh();
+    const onFocus = () => bump();
     window.addEventListener("focus", onFocus);
     return () => { supabase.removeChannel(ch); clearTimeout(timer); window.removeEventListener("focus", onFocus); };
   }, [tables.join(","), every, bump, router, jitter, teamId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -78,6 +80,8 @@ export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables
 
 /* ---------- Admin command helper with toast ---------- */
 type Toast = { id: number; text: string; bad?: boolean };
+const READ_ONLY = new Set(["quiz_admin", "health", "live_lot", "staff_list", "secrets"]);
+
 export function useCommand() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -94,6 +98,8 @@ export function useCommand() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Action failed");
       if (!opts.quiet) push(j.message || "Done");
+      // read-only lookups change nothing: don't refresh this page or wake any team screens
+      if (READ_ONLY.has(String(payload.action))) return j;
       router.refresh();
       // Tell every screen right away. Team-scoped actions only wake those teams.
       const ids = Array.isArray(payload.team_ids) ? payload.team_ids as string[]
