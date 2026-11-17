@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Zap, Lock, Maximize2, ShieldAlert, Timer, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
@@ -17,6 +18,7 @@ type Section = { id: string; idx: number; title: string; time_limit_sec: number;
 type Q = { id: string; prompt: string; options: string[]; choice: number | null };
 type State = { status: string; now: string; flags: number; sections: Section[]; active: { id: string; ends_at: string; questions: Q[] } | null };
 
+const STRIKES = 3;
 const LETTER = ["A", "B", "C", "D", "E", "F"];
 const TONE = ["#6B4BFF", "#FF5F86", "#FF9A5C", "#3FD8FF"];
 
@@ -61,7 +63,7 @@ export default function RapidFire() {
           <h2 className="rf-title">RAPID<br />FIRE</h2>
           <p className="mt-4 max-w-md text-[15px] leading-7 text-[#B9B2E8]">
             {s.status !== "live" ? (s.status === "closed" ? "Rapid Fire is closed. Your score is final." : "Waiting for the host to open Rapid Fire.")
-              : next ? "One section at a time, each with its own clock. Once you start, the quiz locks this screen until the section ends. Leaving the screen is reported to the host."
+              : next ? "One section at a time, each with its own clock. Once you start, the quiz locks this screen until the section ends. Leaving the screen 3 times submits the section as it stands, and every exit is reported to the host."
               : "All sections done. Nice work."}
           </p>
           {s.status === "live" && next && (
@@ -101,6 +103,8 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
   const [picks, setPicks] = useState<Record<string, number | null>>(() => Object.fromEntries(a.questions.map(q => [q.id, q.choice])));
   const [now, setNow] = useState(Date.now() + skew);
   const [warn, setWarn] = useState(false);
+  const [strikes, setStrikes] = useState(0);
+  const lastFlag = useRef(0);
   const [fs, setFs] = useState(true);
   const ending = useRef(false);
   const end = new Date(a.ends_at).getTime();
@@ -117,10 +121,16 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now() + skew), 250); return () => clearInterval(t); }, [skew]);
   useEffect(() => { if (left <= 0) submit(); }, [left, submit]);
+  useEffect(() => { if (strikes >= STRIKES) submit(); }, [strikes, submit]);
 
   // lock-down: report leaving, trap back/reload, keep full screen
   useEffect(() => {
-    const flag = (kind: string) => { fetch("/api/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "flag", kind }), keepalive: true }).catch(() => null); setWarn(true); };
+    const flag = (kind: string) => {
+      // blur + hidden + fullscreen-exit usually fire together for one exit: count it once
+      const t = Date.now(); if (t - lastFlag.current < 1500) return; lastFlag.current = t;
+      fetch("/api/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "flag", kind }), keepalive: true }).catch(() => null);
+      setWarn(true); setStrikes(n => n + 1);
+    };
     const vis = () => { if (document.hidden) flag("left_screen"); };
     const blur = () => flag("lost_focus");
     const fsc = () => { const on = !!document.fullscreenElement; setFs(on); if (!on) flag("exited_fullscreen"); };
@@ -158,7 +168,8 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
 
   const pct = Math.max(0, Math.min(1, left / total));
   const hot = left < 15000;
-  return (
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div className="rf-lock" role="dialog" aria-modal="true" aria-label="Rapid Fire">
       <div className="rf-glow" />
       <header className="rf-top">
@@ -192,11 +203,13 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
         <div className="rf-warn">
           <ShieldAlert size={36} />
           <p className="font-display mt-3 text-2xl font-black">Stay on the quiz</p>
-          <p className="mt-2 max-w-xs text-sm text-[#B9B2E8]">Leaving this screen was reported to the host. The clock keeps running.</p>
+          <p className="mt-2 max-w-xs text-sm text-[#B9B2E8]">Leaving this screen was reported to the host and the clock kept running.</p>
+          <p className="mt-3 rounded-full bg-[#FF4F6E]/15 px-4 py-1.5 text-sm font-bold text-[#FF8FA3]">Strike {Math.min(strikes, STRIKES)} of {STRIKES} · at {STRIKES} this section is submitted as it is</p>
           <button className="rf-start mt-5" onClick={async () => { setWarn(false); try { await document.documentElement.requestFullscreen?.(); } catch {} }}>Back to the quiz</button>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 

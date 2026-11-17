@@ -270,3 +270,10 @@ html.rf-locked header.no-print { visibility: hidden; }
 .rf-nav:disabled { opacity: .35; }
 .rf-submit { padding: 11px 18px; border-radius: 10px; background: #E9E6FA; color: #0E0B2B; font: 800 13px "Inter Tight", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .rf-warn { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; background: rgba(7,6,26,.94); backdrop-filter: blur(6px); color: #FF8FA3; }
+/* while the quiz runs, nothing but the quiz exists on the page */
+html.rf-locked body > *:not(.rf-lock) { display: none !important; }
+html.rf-locked, html.rf-locked body { background: #07061A !important; height: 100%; touch-action: manipulation; }
+.rf-lock { height: 100dvh; width: 100vw; }
+.rf-lock .rf-q, .rf-lock .rf-opt { animation: none; }
+.rf-lock .rf-q { color: #fff; }
+.rf-hero { min-height: 520px; }
