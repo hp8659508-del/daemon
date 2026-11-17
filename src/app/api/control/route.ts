@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       if (Array.isArray(body.team_ids)) body.team_ids.forEach((x: unknown) => typeof x === "string" && touched.add(x));
       if (typeof body.team_id === "string") touched.add(body.team_id);
       if (typeof body.target_id === "string") touched.add(body.target_id);
-      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], trump_resolve: ["team_cards", "team_id"], spin_revoke: ["team_cards", "team_id"], ps_swap: ["team_cards", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
+      const byRow: Record<string, [string, string]> = { undo_tx: ["transactions", "team_id"], undo_sale: ["purchases", "team_id"], trump_resolve: ["team_cards", "team_id"], spin_revoke: ["team_cards", "team_id"], card_remove: ["team_cards", "team_id"], card_unuse: ["team_cards", "team_id"], penalty_remove: ["penalties", "team_id"], ps_swap: ["team_cards", "team_id"], powerup_used: ["team_powerups", "team_id"], revoke: ["team_powerups", "team_id"] };
       if (byRow[body.action] && typeof body.id === "string") {
         const [table, col] = byRow[body.action];
         const { data: row } = await (db as any).from(table).select(col).eq("id", body.id).maybeSingle();
@@ -279,6 +279,16 @@ export async function POST(request: Request) {
           const { error } = await db.from("transactions").delete().in("team_id", teamIds).eq("wallet", "main");
           if (error) await del("transactions");            // wallet column not there yet: old behaviour
           done.push("points → 0");
+        }
+        if (parts.includes("cards")) {
+          // cards teams hold (spin results, trump copies…), penalties, ledgers, problem statements, bingo direction
+          const { data: cs } = await db.from("team_cards").select("applied").in("team_id", teamIds);
+          const cardTx = (cs ?? []).map((c: any) => c.applied?.tx).filter(Boolean);
+          if (cardTx.length) await db.from("transactions").delete().in("id", cardTx);
+          await db.from("team_powerups").delete().in("team_id", teamIds).not("card_id", "is", null);
+          await del("team_cards"); await del("penalties"); await del("team_ledger");
+          await db.from("teams").update({ problem_statement: null, ps_locked: false, bingo_mode: null }).in("id", teamIds);
+          done.push("cards, penalties, problem statements");
         }
         if (parts.includes("powerups")) { await del("team_powerups"); await db.from("team_powerups").delete().in("target_team_id", teamIds); done.push("power-ups"); }
         if (parts.includes("bingo")) { await del("team_bingo"); done.push("bingo marks"); }
@@ -560,6 +570,25 @@ export async function POST(request: Request) {
         const { data: c } = await db.from("team_cards").select("team_id").eq("id", body.id).maybeSingle();
         if (c) await log({ team_id: c.team_id, kind: "auction", action: "granted", label: `Trump card became: ${(data as { name?: string } | null)?.name ?? "card"}` });
         return NextResponse.json({ ok: true, message: `Trump → ${(data as { name?: string } | null)?.name ?? "card"}` });
+      }
+
+      /* ---------------- undo anything on a team ---------------- */
+      case "card_remove": {
+        fail((await db.rpc("admin_card_remove", { p_card: str(body.id), p_admin: user.id })).error);
+        return NextResponse.json({ ok: true, message: "Card removed and its effects undone" });
+      }
+      case "card_unuse": {
+        fail((await db.rpc("admin_card_unuse", { p_card: str(body.id), p_admin: user.id })).error);
+        return NextResponse.json({ ok: true, message: "Card is usable again" });
+      }
+      case "penalty_remove": {
+        const { data, error } = await db.rpc("admin_penalty_remove", { p_id: str(body.id), p_admin: user.id });
+        fail(error);
+        return NextResponse.json({ ok: true, message: `Penalty removed. ${(data as { note?: string } | null)?.note ?? ""}` });
+      }
+      case "ps_unlock": {
+        fail((await db.rpc("admin_ps_unlock", { p_team: str(body.team_id) })).error);
+        return NextResponse.json({ ok: true, message: "Problem statement can be edited again" });
       }
 
       /* ---------------- problem statements ---------------- */

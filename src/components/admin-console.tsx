@@ -421,7 +421,7 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
         <span className="text-xs text-muted">{t.bay ?? "No venue"} · <span className="num font-bold text-graphite">{w.balances[t.id] ?? 0}</span> pts</span>
       </div>
       <div className="mt-3">
-        <p className="eyebrow mb-1">Problem statement {t.ps_locked && <span className="text-ok">· final (swapped)</span>}</p>
+        <p className="eyebrow mb-1">Problem statement {t.ps_locked && <><span className="text-ok">· final (swapped)</span> <button className="ml-2 underline decoration-dotted" onClick={() => confirm("Make this problem statement editable again? (The swap card stays used; to undo the swap itself, use ↶ on the swap card.)") && cmd.run({ action: "ps_unlock", team_id: t.id })}>unlock</button></>}</p>
         {t.ps_locked ? <p className="well p-2 text-sm">{t.problem_statement}</p> : (
           <div className="flex gap-2"><input className="field flex-1 text-sm" placeholder="Type it once the team draws it" value={ps} onChange={e => setPs(e.target.value)} />
             <button className="key key-sm" disabled={ps === (t.problem_statement ?? "")} onClick={() => cmd.run({ action: "ps_set", team_id: t.id, text: ps })}>Save</button></div>
@@ -435,7 +435,7 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
             <p className="eyebrow mb-2">{round === "spin" ? "Spin wheel" : "Auction"} · {rows.length}</p>
             <div className="overflow-x-auto rounded-lg border border-silver/70">
               <table className="ledger cards-table">
-                <thead><tr><th>Received</th><th>Card</th><th>Type</th><th>What it does</th><th>Status</th></tr></thead>
+                <thead><tr><th>Received</th><th>Card</th><th>Type</th><th>What it does</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {rows.map(c => (
                     <tr key={c.id}>
@@ -447,6 +447,10 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
                       <td className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-muted">{c.kind === "note" ? (PHASES.find(p => p.key === c.effect?.phase)?.label ?? "Note") : kindLabel(c.kind)}</td>
                       <td className="text-muted">{c.detail || effectText(c.kind, c.effect)}</td>
                       <td className={`whitespace-nowrap text-xs font-bold ${STATUS_TONE[c.status] ?? ""}`}>{c.status === "spent" ? "Used" : c.status === "pending" ? "Pick card" : c.status === "resolved" ? "Copied" : c.status === "held" ? "Held" : "Applied"}</td>
+                      <td className="whitespace-nowrap text-right">
+                        {c.status === "spent" && <button className="key key-sm mr-1" title={c.effect?.perk === "swap_ps" ? "Undo the swap (both problem statements go back) and make the card usable again" : "Make this card usable again"} onClick={() => confirm(c.effect?.perk === "swap_ps" ? "Undo this swap? Both teams get their own problem statement back, and the swap card can be used again." : `Make "${c.name}" usable again?`) && cmd.run({ action: "card_unuse", id: c.id })}><Undo2 size={12} /></button>}
+                        <button className="key key-sm" title="Remove this card and undo what it did" onClick={() => confirm(c.source === "auction" && c.kind !== "trump" && c.purchase_id ? `Remove "${c.name}" from ${t.team_name}? The sale is voided: auction points refunded and its effects undone.` : c.source === "spin" ? `Remove the spin result "${c.name}"? Its effect is undone.` : c.source === "trump" ? `Remove "${c.name}" (copied by a trump card)? Its effect is undone and the trump card goes back to "choose a card".` : `Remove "${c.name}"? Its effect is undone${c.purchase_id ? " and the auction points refunded" : ""}.`) && cmd.run({ action: "card_remove", id: c.id })}><Trash2 size={12} /></button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -464,6 +468,7 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
               <b className={p.outcome === "applied" || (p.outcome === "passed" && p.landed_team_id === t.id) ? "text-err" : "text-ok"}>
                 {p.outcome === "applied" ? "taken" : p.outcome === "blocked" ? "blocked" : p.outcome === "passed" ? (p.landed_team_id === t.id ? "received" : `passed to ${name(p.landed_team_id)}`) : "passed & skipped"}
               </b>
+              <button className="ml-2 underline decoration-dotted" title="Delete this penalty and give back what it took" onClick={() => confirm(`Remove the penalty "${p.reason}"? Its points and minutes are given back.`) && cmd.run({ action: "penalty_remove", id: p.id })}>remove</button>
             </p>
           ))}
         </div>
@@ -1169,6 +1174,7 @@ function PortalPanel({ w, cmd, staff }: Pick<Ctx, "w" | "cmd" | "staff">) {
 const RESET_PARTS: { key: string; label: string; note: string; global?: boolean }[] = [
   { key: "points", label: "Points → 0", note: "Main points back to 0 (the auction wallet is separate)" },
   { key: "purchases", label: "Auction wins", note: "Removes sold cards and their effects; the auction wallet goes back to full" },
+  { key: "cards", label: "Cards & problem statements", note: "Every card teams hold, penalties, round ledgers, problem statements and swap locks, bingo row/column lock" },
   { key: "powerups", label: "Power-ups", note: "All granted, spun and rival power-ups" },
   { key: "bingo", label: "Bingo marks", note: "Every stamped square" },
   { key: "rounds", label: "Rounds → upcoming", note: "Auction, spin and bingo all back to upcoming" },
@@ -1192,7 +1198,7 @@ function ResetPanel({ w, cmd, staff, scope }: Pick<Ctx, "w" | "cmd" | "staff" | 
         <div className="flex flex-wrap gap-2">
           <button className="key key-sm" onClick={() => preset(["rounds"])}>Restart rounds</button>
           <button className="key key-sm" onClick={() => preset(["bingo"])}>Restart bingo</button>
-          <button className="key key-sm" onClick={() => preset(["points", "purchases", "powerups", "bingo", "rounds", "help", "history", "starting_points", "clock", "lots", "banners"])}>Fresh event (0 pts)</button>
+          <button className="key key-sm" onClick={() => preset(["points", "purchases", "cards", "powerups", "bingo", "rounds", "help", "history", "starting_points", "clock", "lots", "banners"])}>Fresh event (0 pts)</button>
         </div>
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
