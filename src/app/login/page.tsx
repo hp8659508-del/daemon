@@ -49,6 +49,7 @@ function LoginForm() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState(0);
   const [error, setError] = useState("");
   const [show, setShow] = useState(false);
 
@@ -63,15 +64,18 @@ function LoginForm() {
       // Busy moments (hundreds signing in from one campus network) can hit Supabase's
       // rate limit: retry a few times with growing waits instead of calling it a wrong password.
       let error: { status?: number; message?: string } | null = null;
-      for (let attempt = 0; attempt < 4; attempt++) {
+      const WAITS = [2000, 4000, 8000, 12000, 16000, 20000];   // ~1 minute of patient retrying
+      for (let attempt = 0; ; attempt++) {
         ({ error } = await supabase.auth.signInWithPassword({ email: getLoginEmail(identifier), password }));
-        const busy = !!error && (error.status === 429 || error.status === 503 || error.status === 504 || /rate|too many|timeout|fetch/i.test(error.message ?? ""));
-        if (!busy) break;
-        await new Promise(r => setTimeout(r, 1500 * 2 ** attempt + Math.random() * 1500));
+        const busy = !!error && (error.status === 429 || (error.status ?? 0) >= 500 || /rate|too many|timeout|fetch/i.test(error.message ?? ""));
+        if (!busy || attempt >= WAITS.length) break;
+        setRetrying(attempt + 1);
+        await new Promise(r => setTimeout(r, WAITS[attempt] + Math.random() * 1500));
       }
+      setRetrying(0);
 
       if (error) {
-        if (error.status === 429 || /rate|too many/i.test(error.message ?? "")) throw new Error("Lots of people are signing in right now. Wait 30 seconds and try again.");
+        if (error.status === 429 || /rate|too many/i.test(error.message ?? "")) throw new Error("Still very busy. Wait a minute and press ENGAGE again.");
         if ((error.status ?? 0) >= 500 || /fetch|timeout/i.test(error.message ?? "")) throw new Error("Can't reach the server right now. Check your internet and try again.");
         throw new Error("Invalid username/email or password.");
       }
@@ -127,7 +131,8 @@ function LoginForm() {
                 <input id="dh-pw" className="dh-input pr-16" type={show ? "text" : "password"} autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
                 <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold tracking-[.12em] text-[#5136E0]">{show ? "HIDE" : "SHOW"}</button>
               </div>
-              <button className="dh-key mt-6" disabled={busy} type="submit">{busy ? "CHECKING THE CLOCK…" : "ENGAGE"}</button>
+              <button className="dh-key mt-6" disabled={busy} type="submit">{busy ? (retrying ? `BUSY · RETRYING ${retrying}/6…` : "CHECKING THE CLOCK…") : "ENGAGE"}</button>
+              {retrying > 0 && <p className="mt-2 text-center text-xs text-[#55516a]">Lots of people are signing in. Hold on, we keep trying for you.</p>}
             </form>
 
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
