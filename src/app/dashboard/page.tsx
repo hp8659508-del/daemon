@@ -16,6 +16,7 @@ export default async function DashboardPage() {
     const v = teamSlice(world, profile.team_id);
     return <TeamArena v={v} paddle={paddle} />;
   } catch (e) {
-    return <div className="panel p-6 text-sm text-err">The arena is warming up. Try again in a moment. ({e instanceof Error ? e.message : "error"})</div>;
+    // let dashboard/error.tsx show "Reconnecting…" and retry by itself
+    throw e instanceof Error ? e : new Error("Could not load the arena");
   }
 }

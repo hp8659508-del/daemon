@@ -92,33 +92,54 @@ async function allTransactions(db: ReturnType<typeof createAdminClient>) {
  * (team screens refresh often, so they must stay light); balances for every
  * team come from one aggregate call either way.
  */
+/* ---------- shared data cache (team screens) ----------
+ * The parts every team screen needs (teams, rounds, catalogue, settings, balances…)
+ * are fetched once per ~1.5 s per server instance and shared by every team request
+ * on it, instead of once per screen. Concurrent callers share the same in-flight fetch. */
+type SharedPart = Awaited<ReturnType<typeof fetchShared>>;
+let sharedCache: { at: number; p: Promise<SharedPart> } | null = null;
+const SHARED_TTL = 1500;
+function fetchShared(db: ReturnType<typeof createAdminClient>) {
+  return Promise.all([
+    db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked,bingo_mode").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
+    db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
+    db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,pool,created_at").order("created_at"),
+    db.from("powerups").select("*").order("created_at"),
+    db.from("purchases").select("id,team_id,item_id,purchase_price,created_at").order("created_at", { ascending: false }),
+    db.from("bingo_cells").select("*").order("idx"),
+    db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
+    db.rpc("team_balances"),
+  ]);
+}
+function sharedFor(db: ReturnType<typeof createAdminClient>, fresh: boolean): Promise<SharedPart> {
+  if (!fresh && sharedCache && Date.now() - sharedCache.at < SHARED_TTL) return sharedCache.p;
+  const p = fetchShared(db);
+  sharedCache = { at: Date.now(), p };
+  p.then(r => { if (r.some(x => x.error)) sharedCache = null; }, () => { sharedCache = null; });
+  return p;
+}
+
 export async function loadWorld(opts: { teamId?: string } = {}) {
   const db = createAdminClient();
   const tid = opts.teamId;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
-  const [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, bal, cards, pens, ledger] = await Promise.all([
-    db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked,bingo_mode").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
-    db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
-    db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,pool,created_at").order("created_at"),
-    db.from("powerups").select("*").order("created_at"),
+  // admins always read fresh; team screens share the cached part
+  const sharedP = sharedFor(db, !tid);
+  const [[teams, stages, items, powerups, purchases, cells, settings, bal], [tps, txs, marks, activity, members, help, cards, pens, ledger]] = await Promise.all([sharedP, Promise.all([
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
-    db.from("purchases").select("id,team_id,item_id,purchase_price,created_at").order("created_at", { ascending: false }),
     tid ? db.from("transactions").select("id,team_id,description,points,created_at").eq("team_id", tid).order("created_at", { ascending: false }).limit(3000)
         : allTransactions(db),
-    db.from("bingo_cells").select("*").order("idx"),
     own(db.from("team_bingo").select("team_id,idx,marked_at")),
-    db.from("event_settings").select("portal_locked,portal_message,live_lots,broadcasts,hackathon_started_at,clock_paused_at,bingo_full_bonus,bingo_rewards,hackathon_end_at,live_lot,broadcast,bingo_line_bonus,leaderboard_visible,starting_points").eq("id", true).maybeSingle(),
     own(db.from("activity_log").select("id,team_id,kind,action,label,points,minutes,created_at")).order("created_at", { ascending: false }).limit(tid ? 300 : 1000),
     own(db.from("team_members").select("id,team_id,role,full_name,usn,department,year,phone,email,college,checked_in")).order("role").order("created_at"),
     own(db.from("help_requests").select("id,team_id,message,status,created_at")).eq("status", "open").order("created_at"),
-    db.rpc("team_balances"),
     own(db.from("team_cards").select("id,team_id,purchase_id,item_id,name,kind,effect,source,status,detail,spent_at,created_at")).order("created_at"),
     tid ? db.from("penalties").select("*").or(`team_id.eq.${tid},landed_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("penalties").select("*").order("created_at", { ascending: false }),
     own(db.from("team_ledger").select("*")).order("created_at"),
-  ]);
+  ])]);
   const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, cards, pens, ledger].find(r => r.error)?.error;
   if (firstError) throw new Error(firstError.message + " — run supabase/ui_v10_spin_ledger.sql (after ui_v9_cards.sql) in the Supabase SQL editor");
 

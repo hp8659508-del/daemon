@@ -1,3 +1,4 @@
+import { getUserCached } from "@/lib/supabase/cached-user";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,7 +26,7 @@ async function firstSectionId(db: ReturnType<typeof createAdminClient>) {
   return (await db.from("quiz_sections").select("id").order("idx").limit(1)).data?.[0]?.id ?? null;
 }
 /** display order of questions in a section, and option permutation (display → original) per question */
-function shuffleFor(teamId: string, k: number, sectionId: string, isFirst: boolean, qs: { id: string; options: unknown }[]) {
+function shuffleFor<T extends { id: string; options: unknown }>(teamId: string, k: number, sectionId: string, isFirst: boolean, qs: T[]) {
   const n = qs.length;
   const qOrder = isFirst ? nthPerm(n, k) : nthPerm(n, hash(teamId + sectionId));
   const ordered = qOrder.map(i => qs[i]);
@@ -42,7 +43,7 @@ function shuffleFor(teamId: string, k: number, sectionId: string, isFirst: boole
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserCached(supabase as never);
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const { data: profile } = await supabase.from("profiles").select("team_id").eq("id", user.id).maybeSingle();
   const teamId = profile?.team_id as string | undefined;
@@ -114,11 +115,12 @@ export async function POST(request: Request) {
       questions = ordered.map((q, pos) => {
         const perm = optPerm[pos], opts = q.options as string[];
         const saved = (ans ?? []).find(a => a.question_id === q.id)?.choice;
-        return { id: q.id, prompt: (q as any).prompt, options: perm.map(o => opts[o]), choice: saved === undefined || saved === null ? null : perm.indexOf(saved) };
+        return { id: q.id, prompt: String((q as unknown as { prompt: string }).prompt), options: perm.map(o => opts[o]), choice: saved === undefined || saved === null ? null : perm.indexOf(saved) };
       });
     }
     return NextResponse.json({
       status: st,
+      team_id: teamId,
       now: new Date().toISOString(),
       flags: flags.count ?? 0,
       sections: sections.map(s => ({ ...s, questions: (counts ?? []).filter(c => c.section_id === s.id).length, run: runOf(s.id) })),

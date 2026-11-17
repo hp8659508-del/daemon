@@ -1,4 +1,5 @@
 
+import { forgetProfile } from "@/lib/supabase/cached-user";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
     if (profileError) {
       throw profileError;
     }
+    forgetProfile(user.id);
 
     if (profile?.team_id) {
       // Record password change event in activity_log for admin awareness

@@ -1,3 +1,4 @@
+import { getUserCached } from "@/lib/supabase/cached-user";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -5,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 /** Team lead taps "Need help": one open request per team at a time. */
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserCached(supabase as never);
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const { data: p } = await supabase.from("profiles").select("team_id").eq("id", user.id).maybeSingle();
   if (!p?.team_id) return NextResponse.json({ error: "Not a team account." }, { status: 403 });

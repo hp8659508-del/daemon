@@ -1,3 +1,4 @@
+import { getUserCached } from "@/lib/supabase/cached-user";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,7 +26,7 @@ const ACTS = ["auction", "spin", "bingo"];
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserCached(supabase as never);
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const { data: profile } = await supabase.from("profiles").select("role, venue").eq("id", user.id).maybeSingle();
   if (profile?.role !== "admin") return NextResponse.json({ error: "Admin only." }, { status: 403 });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { onPulse } from "@/lib/pulse";
 import { Zap, Lock, Maximize2, ShieldAlert, Timer, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
@@ -16,7 +17,7 @@ import { Zap, Lock, Maximize2, ShieldAlert, Timer, CheckCircle2, ChevronLeft, Ch
 type Run = { started_at: string; ends_at: string; submitted_at: string | null; correct: number | null; points: number | null };
 type Section = { id: string; idx: number; title: string; time_limit_sec: number; points_per_correct: number; questions: number; run: Run | null };
 type Q = { id: string; prompt: string; options: string[]; choice: number | null };
-type State = { status: string; now: string; flags: number; sections: Section[]; active: { id: string; ends_at: string; questions: Q[] } | null };
+type State = { team_id?: string; status: string; now: string; flags: number; sections: Section[]; active: { id: string; ends_at: string; questions: Q[] } | null };
 
 const STRIKES = 3;
 const LETTER = ["A", "B", "C", "D", "E", "F"];
@@ -38,7 +39,15 @@ export default function RapidFire() {
     try { const j = await call(body); skew.current = new Date(j.now).getTime() - Date.now(); setS(j); setErr(""); }
     catch (e) { setErr(e instanceof Error ? e.message : "Error"); }
   }, []);
-  useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 15000 + Math.random() * 10000); return () => clearInterval(t); }, [load]);
+  // reload when the pulse says this team (or the event) changed; slow fallback poll otherwise
+  const team = s?.team_id;
+  const seenV = useRef<string>("");
+  useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 60000 + Math.random() * 20000); return () => clearInterval(t); }, [load]);
+  useEffect(() => onPulse(p => {
+    const sig = `${p.v?.global ?? 0}:${team ? p.v?.[team] ?? 0 : 0}`;
+    if (seenV.current && seenV.current !== sig) setTimeout(() => load(), Math.random() * 2500);
+    seenV.current = sig;
+  }), [load, team]);
 
   if (!s) return <div className="panel grid place-items-center p-16 text-sm text-muted">{err || "Loading Rapid Fire…"}</div>;
   if (s.active) return <QuizScreen key={s.active.id} s={s} skew={skew.current} reload={load} />;

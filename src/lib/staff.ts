@@ -1,3 +1,4 @@
+import { getUserCached } from "@/lib/supabase/cached-user";
 import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -7,7 +8,7 @@ export type Staff = { id: string; email: string; venue: string | null; isHost: b
 
 export async function getStaff(): Promise<Staff | null> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserCached(supabase as never);
   if (!user) return null;
   const { data: p } = await supabase.from("profiles").select("role, venue").eq("id", user.id).maybeSingle();
   if (p?.role !== "admin") return null;

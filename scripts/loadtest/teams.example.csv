@@ -1,0 +1,3 @@
+# username,password  (one team per line; use 5–10 test teams, not the real ones mid-event)
+TEST_TEAM_1,changeme
+TEST_TEAM_2,changeme
