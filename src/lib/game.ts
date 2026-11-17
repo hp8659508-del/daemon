@@ -97,7 +97,7 @@ async function allTransactions(db: ReturnType<typeof createAdminClient>) {
  * are fetched once per ~1.5 s per server instance and shared by every team request
  * on it, instead of once per screen. Concurrent callers share the same in-flight fetch. */
 type SharedPart = Awaited<ReturnType<typeof fetchShared>>;
-let sharedCache: { at: number; p: Promise<SharedPart> } | null = null;
+let sharedCache: { at: number; p: Promise<SharedPart>; gv?: number } | null = null;
 const SHARED_TTL = 1500;
 function fetchShared(db: ReturnType<typeof createAdminClient>) {
   return Promise.all([
@@ -111,21 +111,50 @@ function fetchShared(db: ReturnType<typeof createAdminClient>) {
     db.rpc("team_balances"),
   ]);
 }
-function sharedFor(db: ReturnType<typeof createAdminClient>, fresh: boolean): Promise<SharedPart> {
-  if (!fresh && sharedCache && Date.now() - sharedCache.at < SHARED_TTL) return sharedCache.p;
+function sharedFor(db: ReturnType<typeof createAdminClient>, fresh: boolean, gv?: number): Promise<SharedPart> {
+  if (!fresh && sharedCache && (gv !== undefined ? sharedCache.gv === gv && Date.now() - sharedCache.at < 60_000 : Date.now() - sharedCache.at < SHARED_TTL)) return sharedCache.p;
   const p = fetchShared(db);
-  sharedCache = { at: Date.now(), p };
+  sharedCache = { at: Date.now(), p, gv };
   p.then(r => { if (r.some(x => x.error)) sharedCache = null; }, () => { sharedCache = null; });
   return p;
 }
 
-export async function loadWorld(opts: { teamId?: string } = {}) {
+/* ---------- per-team cache ----------
+ * Everyone on a team sees the same data. Each team's world is loaded ONCE per change
+ * (keyed by that team's change counter + the event-wide counter from dh_versions)
+ * and shared by every teammate's screen on this server. Any change bumps a counter,
+ * so the key changes and the next request loads fresh: never stale. */
+type WorldT = Awaited<ReturnType<typeof loadWorldRaw>>;
+const teamCache = new Map<string, { exp: number; p: Promise<WorldT> }>();
+export async function loadWorld(opts: { teamId?: string } = {}): Promise<WorldT> {
+  const tid = opts.teamId;
+  if (!tid) return loadWorldRaw(opts);
+  const db = createAdminClient();
+  let key: string | null = null, gv: number | undefined;
+  try {
+    const { data } = await db.from("dh_versions").select("key,v").in("key", ["global", tid]);
+    if (data) {
+      gv = Number(data.find((r: { key: string }) => r.key === "global")?.v ?? 0);
+      key = `${tid}:${data.find((r: { key: string }) => r.key === tid)?.v ?? 0}:${gv}`;
+    }
+  } catch { key = null; }                         // ui_v13 not run yet: no cache
+  if (!key) return loadWorldRaw(opts);
+  const hit = teamCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.p;
+  const p = loadWorldRaw({ teamId: tid, gv });
+  if (teamCache.size > 400) for (const [k, e] of teamCache) if (e.exp < Date.now() || teamCache.size > 300) teamCache.delete(k);
+  teamCache.set(key, { exp: Date.now() + 60_000, p });
+  p.catch(() => teamCache.delete(key!));
+  return p;
+}
+
+async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
   const db = createAdminClient();
   const tid = opts.teamId;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
   // admins always read fresh; team screens share the cached part
-  const sharedP = sharedFor(db, !tid);
+  const sharedP = sharedFor(db, !tid, opts.gv);
   const [[teams, stages, items, powerups, purchases, cells, settings, bal], [tps, txs, marks, activity, members, help, cards, pens, ledger]] = await Promise.all([sharedP, Promise.all([
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),

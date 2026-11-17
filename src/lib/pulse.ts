@@ -12,17 +12,23 @@ type Fn = (p: Pulse) => void;
 const fns = new Set<Fn>();
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL, SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 let direct = !!(SB_URL && SB_KEY);
+let directFails = 0, directOffUntil = 0;
+const withTimeout = (ms: number) => { const ac = new AbortController(); setTimeout(() => ac.abort(), ms); return ac.signal; };
 /** Straight from Supabase (cheap, no Vercel usage); falls back to /api/pulse if that fails. */
 async function fetchPulse(): Promise<Pulse> {
-  if (direct) {
+  // Straight from Supabase normally; if it is slow/failing twice in a row, use the
+  // CDN-cached copy on Vercel for a minute (the database then sees ~1 request/second).
+  if (direct && Date.now() > directOffUntil) {
     try {
-      const r = await fetch(`${SB_URL}/rest/v1/rpc/dh_pulse`, { method: "POST", headers: { apikey: SB_KEY!, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" }, body: "{}", cache: "no-store" });
+      const r = await fetch(`${SB_URL}/rest/v1/rpc/dh_pulse`, { method: "POST", headers: { apikey: SB_KEY!, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" }, body: "{}", cache: "no-store", signal: withTimeout(5000) });
       if (r.status === 404 || r.status === 401 || r.status === 403) direct = false;   // SQL not run / not granted
-      else if (r.ok) return (await r.json()) as Pulse;
+      else if (r.ok) { directFails = 0; return (await r.json()) as Pulse; }
       else throw new Error(String(r.status));
-    } catch (e) { if (!direct) { /* fall through */ } else throw e; }
+    } catch {
+      if (++directFails >= 2) { directOffUntil = Date.now() + 60_000 + Math.random() * 30_000; directFails = 0; }
+    }
   }
-  const r = await fetch("/api/pulse", { cache: "no-store" as RequestCache });
+  const r = await fetch("/api/pulse", { cache: "no-store" as RequestCache, signal: withTimeout(8000) });
   if (!r.ok) throw new Error(String(r.status));
   return (await r.json()) as Pulse;
 }
