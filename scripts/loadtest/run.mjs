@@ -17,6 +17,13 @@
  *     dashboard within 6 s (the worst case: e.g. a sale everyone sees)
  * At the end: requests, errors by type, and response times (p50 / p95 / p99) per kind.
  * Start small (--users 50), then 200, 500, 1000. Stop with Ctrl+C any time (it prints the report).
+ *
+ * Other modes (add --mode …):
+ *   login        --users 1000 --ramp 20         1000 sign-ins within 20 s (campus gate rush)
+ *   propagation  --admin-email a@b --admin-pass … [--rounds 10]
+ *                                               admin click → visible on screens, timed (net 0 points)
+ *   quiz                                        every team in teams.csv starts, answers and submits
+ *                                               a Rapid Fire section at the same instant
  */
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith("--") ? [...a, [x.slice(2), all[i + 1]?.startsWith("--") ? "1" : all[i + 1] ?? "1"]] : a), []));
 const BASE = (args.base || "https://daemon-hour.vercel.app").replace(/\/$/, "");
@@ -107,7 +114,94 @@ function report() {
 }
 process.on("SIGINT", () => { stop = true; report(); });
 
+/* ======================= extra modes ======================= */
+const MODE = args.mode || "watch";
+const SBH = { apikey: ANON, "Content-Type": "application/json" };
+async function signIn(user, pass) {
+  const email = user.includes("@") ? user : `${user.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase()}@teams.daemonhour.invalid`;
+  const t0 = performance.now();
+  const r = await fetch(`${SB}/auth/v1/token?grant_type=password`, { method: "POST", headers: SBH, body: JSON.stringify({ email, password: pass }) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  rec("sign-in", performance.now() - t0, !!r && r.ok, r ? r.status : "network");
+  return r && r.ok ? { user, cookie: authCookie(j) } : null;
+}
+async function api(kind, path, cookie, body) {
+  const t0 = performance.now();
+  const r = await fetch(`${BASE}${path}`, { method: "POST", headers: { "Content-Type": "application/json", cookie }, body: JSON.stringify(body) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  rec(kind, performance.now() - t0, !!r && r.ok, r ? r.status : "network");
+  return { ok: !!r && r.ok, j };
+}
+async function pulse() {
+  const r = await fetch(`${SB}/rest/v1/rpc/dh_pulse`, { method: "POST", headers: { ...SBH, Authorization: `Bearer ${ANON}` }, body: "{}" }).catch(() => null);
+  return r && r.ok ? r.json() : null;
+}
+function readCsv(file) {
+  return import("node:fs").then(fs => fs.readFileSync(file, "utf8").split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith("#")).map(l => l.split(",").map(x => x.trim())));
+}
+
+/* LOGIN STORM: everyone signs in within --ramp seconds (default 20) */
+async function modeLogin() {
+  const rows = await readCsv(args.teams);
+  const ramp = Number(args.ramp || 20) * 1000;
+  console.log(`Login storm: ${USERS} sign-ins over ${ramp / 1000}s, rotating ${rows.length} accounts`);
+  await Promise.all(Array.from({ length: USERS }, async (_, i) => { await sleep(Math.random() * ramp); const [u, p] = rows[i % rows.length]; await signIn(u, p); }));
+}
+
+/* PROPAGATION: how long until an admin change reaches team screens (run while a watch test runs in another terminal) */
+async function modePropagation() {
+  const admin = await signIn(args["admin-email"], args["admin-pass"]);
+  const [[u, p]] = await readCsv(args.teams);
+  const team = await signIn(u, p);
+  if (!admin || !team) { console.error("Could not sign in admin or the first team."); return; }
+  const st = await api("quiz state (to find team id)", "/api/quiz", team.cookie, { action: "state" });
+  const tid = st.j.team_id; if (!tid) { console.error("Couldn't read the team id (is v13+ deployed?)"); return; }
+  const rounds = Number(args.rounds || 10);
+  console.log(`Propagation: ${rounds} × (admin gives ${u} +1, then −1). Measuring until the change reaches screens.`);
+  for (let i = 0; i < rounds; i++) {
+    for (const amount of [1, -1]) {
+      const before = (await pulse())?.v?.[tid] ?? 0;
+      const t0 = performance.now();
+      await api("admin action", "/api/control", admin.cookie, { action: "grant", team_ids: [tid], amount, reason: "Load test (auto-reversed)" });
+      const tAck = performance.now();
+      let seen = false;
+      while (performance.now() - t0 < 15000) { const pv = await pulse(); if ((pv?.v?.[tid] ?? 0) !== before) { seen = true; break; } await sleep(150); }
+      rec("change visible to screens (admin click → pulse)", performance.now() - t0, seen, "not seen in 15s");
+      // a real screen polls every ~5s and then reloads: worst case adds poll gap + reload
+      const r0 = performance.now(); await hit("team reload after change", `${BASE}/dashboard`, { headers: { cookie: team.cookie, RSC: "1" } });
+      rec("worst case on a phone (≈ +5s poll gap + reload)", (tAck - t0) + (performance.now() - tAck) + 5000 + (performance.now() - r0), seen, "x");
+      await sleep(1500);
+    }
+  }
+  console.log("Net points change for the team: 0 (each +1 was reversed).");
+}
+
+/* QUIZ RUSH: every team in the CSV starts the next Rapid Fire section and answers at the same moment */
+async function modeQuiz() {
+  const rows = await readCsv(args.teams);
+  console.log(`Quiz rush: ${rows.length} teams start + answer + submit at once. ⚠ writes real quiz attempts for these TEST teams: reset them afterwards in Rapid Fire.`);
+  const teams = (await Promise.all(rows.map(([u, p]) => signIn(u, p)))).filter(Boolean);
+  await Promise.all(teams.map(async t => {
+    const st = await api("quiz state", "/api/quiz", t.cookie, { action: "state" });
+    if (st.j.status !== "live") { rec("quiz open for team", 0, false, "Rapid Fire not open for " + t.user); return; }
+    const next = (st.j.sections || []).find(x => !x.run?.submitted_at);
+    if (!next) { rec("quiz open for team", 0, false, "already finished: reset " + t.user); return; }
+    const s2 = await api("quiz start section", "/api/quiz", t.cookie, { action: "start", section_id: next.id });
+    const qs = s2.j.active?.questions || [];
+    await Promise.all(qs.map(q => api("quiz answer", "/api/quiz", t.cookie, { action: "answer", question_id: q.id, choice: Math.floor(Math.random() * q.options.length) })));
+    await api("quiz submit", "/api/quiz", t.cookie, { action: "submit", section_id: next.id });
+  }));
+}
+
 (async () => {
+  if (MODE !== "watch") {
+    if (!args.teams) { console.error("--teams teams.csv is required for this mode"); process.exit(1); }
+    if (MODE === "login") await modeLogin();
+    else if (MODE === "propagation") await modePropagation();
+    else if (MODE === "quiz") await modeQuiz();
+    else { console.error("Unknown --mode (use watch | login | propagation | quiz)"); process.exit(1); }
+    report(); return;
+  }
   console.log(`Base ${BASE} · Supabase ${ref} · ${USERS} people · ramp ${RAMP_S}s · ${MINUTES} min · change wave every ${WAVE_S}s`);
   const sessions = args.teams ? await sessionsFromCsv(args.teams) : [];
   if (args.teams) console.log(`Signed in ${sessions.length} team account(s); every person is logged in as one of them.`);
