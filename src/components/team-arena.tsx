@@ -6,8 +6,8 @@ import { Zap, Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, C
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
 import RapidFire from "@/components/rapid-fire";
+import { onPulse, wantFastPulse } from "@/lib/pulse";
 import RoundLedgers from "@/components/round-ledger";
-import { onLotFeed, type LotFeed } from "@/lib/realtime";
 import MemberTiles from "@/components/member-tiles";
 import { COLUMNS } from "@/lib/bingo-shared";
 import { Hourglass, LiveSync, useNow, fmtClock, fmtTime, fmtMins, StatusLed, Empty } from "@/components/ui";
@@ -37,7 +37,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
       <p className="eyebrow mt-6">Portal paused</p>
       <h1 className="font-display mt-2 text-4xl">Hold tight</h1>
       <p className="mt-3 text-sm text-muted">{v.lockMessage || "The organisers have paused the portal for a moment. This page will come back on its own."}</p>
-      <div className="mt-6"><LiveSync tables={["event_settings"]} every={10000} jitter={2000} /></div>
+      <div className="mt-6"><LiveSync tables={["event_settings"]} pulse /></div>
     </section>
   );
   return (
@@ -204,8 +204,13 @@ function AuctionLive({ v, paddle }: { v: TeamView; paddle: number }) {
   const live = v.stages.auction.status === "live";
   const spent = v.purchases.reduce((a, p) => a + p.purchase_price, 0);
   // Live price: websocket feed from the auctioneer wins over the (slower) server copy.
-  const [feed, setFeed] = useState<LotFeed | null>(null);
-  useEffect(() => onLotFeed(l => { if (l.venue === v.venueKey || l.venue === "all") setFeed(l); }), [v.venueKey]);
+  // Live price: rides in the shared pulse (≈1.5 s while the auction is live), no socket needed.
+  const [feed, setFeed] = useState<{ item_id: string | null; price: number } | null>(null);
+  useEffect(() => onPulse(p => {
+    const l = p.lots?.[v.venueKey] ?? p.lots?.all ?? null;
+    setFeed(l ? { item_id: l.item_id, price: Number(l.price) } : { item_id: null, price: 0 });
+  }), [v.venueKey]);
+  useEffect(() => (live ? wantFastPulse() : undefined), [live]);
   const lotItemId = feed ? feed.item_id : v.liveLot?.item_id ?? null;
   const price = feed ? feed.price : v.liveLot?.price ?? 0;
   const item = lotItemId ? v.catalogue.find(i => i.id === lotItemId) ?? null : null;

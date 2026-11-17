@@ -60,12 +60,19 @@ function LoginForm() {
     try {
       const supabase = createClient();
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email: getLoginEmail(identifier),
-        password,
-      });
+      // Busy moments (hundreds signing in from one campus network) can hit Supabase's
+      // rate limit: retry a few times with growing waits instead of calling it a wrong password.
+      let error: { status?: number; message?: string } | null = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        ({ error } = await supabase.auth.signInWithPassword({ email: getLoginEmail(identifier), password }));
+        const busy = !!error && (error.status === 429 || error.status === 503 || error.status === 504 || /rate|too many|timeout|fetch/i.test(error.message ?? ""));
+        if (!busy) break;
+        await new Promise(r => setTimeout(r, 1500 * 2 ** attempt + Math.random() * 1500));
+      }
 
       if (error) {
+        if (error.status === 429 || /rate|too many/i.test(error.message ?? "")) throw new Error("Lots of people are signing in right now. Wait 30 seconds and try again.");
+        if ((error.status ?? 0) >= 500 || /fetch|timeout/i.test(error.message ?? "")) throw new Error("Can't reach the server right now. Check your internet and try again.");
         throw new Error("Invalid username/email or password.");
       }
 

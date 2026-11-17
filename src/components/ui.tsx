@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { onPulse } from "@/lib/pulse";
 import SandClock, { SyncedSand, type SandTone } from "@/components/sand-clock";
 import { onRefreshPulse, onHubReady, sendRefreshPulse } from "@/lib/realtime";
 
@@ -28,8 +29,44 @@ export function fmtTime(iso: string | null) {
 }
 export function fmtMins(m: number) { return `${m > 0 ? "+" : m < 0 ? "−" : "±"}${Math.abs(m)} min`; }
 
-/* ---------- Realtime + polling refresh so screens follow the admin instantly ---------- */
-export function LiveSync({ tables, every = 12000, jitter = 0, teamId }: { tables: string[]; every?: number; jitter?: number; teamId?: string }) {
+/* ---------- Keeping screens current ----------
+ * Team screens (and anything passed `pulse`) use the shared /api/pulse counters: no realtime
+ * socket, no database subscription, reload only when their team or the event changed.
+ * That is what lets 1000+ screens stay live. Admin screens (a handful) keep realtime. */
+export function LiveSync(props: { tables: string[]; every?: number; jitter?: number; teamId?: string; pulse?: boolean }) {
+  return props.teamId || props.pulse ? <PulseSync teamId={props.teamId} /> : <RealtimeSync {...props} />;
+}
+
+function PulseSync({ teamId }: { teamId?: string }) {
+  const router = useRouter();
+  const seen = useRef<{ g?: number; t?: number }>({});
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRefresh = useRef(0);
+  const [ok, setOk] = useState(false);
+  useEffect(() => onPulse(p => {
+    setOk(true);
+    const g = p.v?.global ?? 0, t = teamId ? p.v?.[teamId] ?? 0 : 0;
+    const prev = seen.current;
+    seen.current = { g, t };
+    if (prev.g === undefined) return;                      // first sample: just remember
+    const mine = t !== prev.t, all = g !== prev.g;
+    if (!mine && !all) return;
+    if (pending.current) return;
+    // own team changed → quickly; whole event changed → spread 1000 screens over ~6 s
+    const since = Date.now() - lastRefresh.current;
+    const wait = Math.max(mine ? 150 : 400, 2500 - since) + Math.random() * (mine ? 900 : 6000);
+    pending.current = setTimeout(() => { pending.current = null; lastRefresh.current = Date.now(); router.refresh(); }, wait);
+  }), [router, teamId]);
+  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+  return (
+    <span className="chip" title={ok ? "Up to date: changes arrive within a few seconds" : "Connecting…"}>
+      <span className={`led ${ok ? "led-live" : "led-upcoming"}`} />
+      {ok ? "LIVE" : "SYNC"}
+    </span>
+  );
+}
+
+function RealtimeSync({ tables, every = 12000, jitter = 0, teamId }: { tables: string[]; every?: number; jitter?: number; teamId?: string }) {
   const router = useRouter();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRefresh = useRef(0);
