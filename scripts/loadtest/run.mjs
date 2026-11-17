@@ -88,7 +88,7 @@ async function person(i, session) {
   if (session) await hit("page /dashboard", `${BASE}/dashboard`, { headers: { cookie: session.cookie } });
   let seenWave = wave;
   while (!stop && Date.now() < endAt) {
-    await hit("pulse (Supabase)", `${SB}/rest/v1/rpc/dh_pulse`, { method: "POST", headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" }, body: "{}" });
+    await hit("pulse (Supabase)", `${SB}/rest/v1/rpc/dh_pulse`, { method: "POST", headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" }, body: session?.tid ? JSON.stringify({ p_team: session.tid }) : "{}" });
     if (session && wave !== seenWave) {                           // event-wide change → reload within 6 s
       seenWave = wave; await sleep(Math.random() * 6000);
       await hit("page /dashboard", `${BASE}/dashboard`, { headers: { cookie: session.cookie, RSC: "1" } });

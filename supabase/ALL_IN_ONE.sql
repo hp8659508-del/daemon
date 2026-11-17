@@ -2552,19 +2552,21 @@ begin
   end loop;
 end $$;
 
--- the whole pulse in one round trip
-create or replace function public.dh_pulse()
+-- the whole pulse in one round trip (optionally for one team: see ui_v14)
+drop function if exists public.dh_pulse();
+create or replace function public.dh_pulse(p_team uuid default null)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
-    'v', coalesce((select jsonb_object_agg(key, v) from public.dh_versions), '{}'::jsonb),
+    'v', coalesce((select jsonb_object_agg(key, v) from public.dh_versions
+                    where p_team is null or key = 'global' or key = p_team::text), '{}'::jsonb),
     'lots', coalesce((select live_lots from public.event_settings where id = true), '{}'::jsonb),
     'at', now()
   )
 $$;
 -- browsers read the pulse straight from Supabase (no Vercel request per poll). It holds only
 -- change counters and the live auction lot, nothing private.
-revoke all on function public.dh_pulse() from public;
-grant execute on function public.dh_pulse() to anon, authenticated, postgres, service_role;
+revoke all on function public.dh_pulse(uuid) from public;
+grant execute on function public.dh_pulse(uuid) to anon, authenticated, postgres, service_role;
 revoke all on function public.dh_bump_key(text) from public, anon, authenticated;
 grant all on public.dh_versions to postgres, service_role;
 
@@ -2572,5 +2574,26 @@ grant all on public.dh_versions to postgres, service_role;
 create index if not exists quiz_flags_team_idx on public.quiz_flags(team_id);
 create index if not exists quiz_answers_question_idx on public.quiz_answers(question_id);
 create index if not exists team_bingo_team_idx on public.team_bingo(team_id);
+
+-- ======================= ui_v14_resilience.sql =======================
+-- ============================================================================
+-- DAEMON HOUR · v14 — resilience. Run AFTER ui_v13_scale.sql. Re-runnable.
+-- The pulse can now be asked for ONE team: a phone gets ~150 bytes instead of every
+-- team's counter (1000 phones × a poll every few seconds × hours adds up against the
+-- free plan's 5 GB data allowance). It also returns the server time so phones with a
+-- wrong clock still show the right countdown.
+-- ============================================================================
+drop function if exists public.dh_pulse();
+create or replace function public.dh_pulse(p_team uuid default null)
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object(
+    'v', coalesce((select jsonb_object_agg(key, v) from public.dh_versions
+                    where p_team is null or key = 'global' or key = p_team::text), '{}'::jsonb),
+    'lots', coalesce((select live_lots from public.event_settings where id = true), '{}'::jsonb),
+    'at', now()
+  )
+$$;
+revoke all on function public.dh_pulse(uuid) from public;
+grant execute on function public.dh_pulse(uuid) to anon, authenticated, postgres, service_role;
 
 select * from public.daemon_health();

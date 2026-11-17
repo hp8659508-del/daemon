@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { onPulse } from "@/lib/pulse";
+import { onPulse, setPulseTeam, serverNow, pulseStale } from "@/lib/pulse";
 import SandClock, { SyncedSand, type SandTone } from "@/components/sand-clock";
 import { onRefreshPulse, onHubReady, sendRefreshPulse } from "@/lib/realtime";
 
@@ -13,9 +13,10 @@ export function Hourglass({ fill = 1, size = 96, running = true, tone = "violet"
 }
 
 /* ---------- Live countdown to a (projected) end time ---------- */
+/** "now" by the SERVER's clock (corrected for phones whose clock is wrong). */
 export function useNow(ms = 1000) {
   const [now, setNow] = useState<number | null>(null);
-  useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(t); }, [ms]);
+  useEffect(() => { setNow(serverNow()); const t = setInterval(() => setNow(serverNow()), ms); return () => clearInterval(t); }, [ms]);
   return now;
 }
 export function fmtClock(msLeft: number) {
@@ -43,8 +44,11 @@ function PulseSync({ teamId }: { teamId?: string }) {
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRefresh = useRef(0);
   const [ok, setOk] = useState(false);
+  const [offline, setOffline] = useState(false);
+  useEffect(() => { setPulseTeam(teamId); }, [teamId]);
+  useEffect(() => { const t = setInterval(() => setOffline(pulseStale() && ok), 3000); return () => clearInterval(t); }, [ok]);
   useEffect(() => onPulse(p => {
-    setOk(true);
+    setOk(true); setOffline(false);
     const g = p.v?.global ?? 0, t = teamId ? p.v?.[teamId] ?? 0 : 0;
     const prev = seen.current;
     seen.current = { g, t };
@@ -59,9 +63,9 @@ function PulseSync({ teamId }: { teamId?: string }) {
   }), [router, teamId]);
   useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
   return (
-    <span className="chip" title={ok ? "Up to date: changes arrive within a few seconds" : "Connecting…"}>
-      <span className={`led ${ok ? "led-live" : "led-upcoming"}`} />
-      {ok ? "LIVE" : "SYNC"}
+    <span className="chip" title={offline ? "No connection: reconnecting by itself" : ok ? "Up to date: changes arrive within a few seconds" : "Connecting…"}>
+      <span className={`led ${offline ? "led-offline" : ok ? "led-live" : "led-upcoming"}`} />
+      {offline ? "OFFLINE · RETRYING" : ok ? "LIVE" : "SYNC"}
     </span>
   );
 }

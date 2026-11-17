@@ -18,9 +18,12 @@ function nthPerm(n: number, k: number) {
   return out;
 }
 function hash(s: string) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+/** Team number (paddle) is unique and never changes mid-quiz, unlike list position:
+ *  adding or deleting a team during Rapid Fire must not reshuffle anyone's paper. */
 async function teamOrdinal(db: ReturnType<typeof createAdminClient>, teamId: string) {
-  const { data } = await db.from("teams").select("id").order("id");
-  return Math.max(0, (data ?? []).findIndex(t => t.id === teamId));
+  const { data } = await db.from("teams").select("paddle").eq("id", teamId).maybeSingle();
+  const n = Number((data as { paddle?: number | null } | null)?.paddle);
+  return Number.isFinite(n) && n > 0 ? n - 1 : hash(teamId) % 997;
 }
 async function firstSectionId(db: ReturnType<typeof createAdminClient>) {
   return (await db.from("quiz_sections").select("id").order("idx").limit(1)).data?.[0]?.id ?? null;
