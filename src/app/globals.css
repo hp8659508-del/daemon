@@ -277,3 +277,11 @@ html.rf-locked, html.rf-locked body { background: #07061A !important; height: 10
 .rf-lock .rf-q, .rf-lock .rf-opt { animation: none; }
 .rf-lock .rf-q { color: #fff; }
 .rf-hero { min-height: 520px; }
+.led-offline { background: #E5484D; box-shadow: 0 0 6px #E5484D; animation: rfblink 1s steps(2) infinite; }
+/* old Android browsers without color-mix(): still show the chosen option clearly */
+.rf-opt[data-on="true"] { background: rgba(107,75,255,.22); }
+@supports (background: color-mix(in srgb, red 50%, blue)) { .rf-opt[data-on="true"] { background: color-mix(in srgb, var(--tone) 22%, transparent); } }
+.rf-lock { height: 100vh; }
+@supports (height: 100dvh) { .rf-lock { height: 100dvh; } }
+.rf-unsaved { margin-left: 10px; color: #FF9A5C; letter-spacing: .1em; text-transform: none; animation: rfblink 1s steps(2) infinite; }
+.rf-dots button[data-unsaved="true"] { background: #FF9A5C; }

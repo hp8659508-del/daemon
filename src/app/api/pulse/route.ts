@@ -10,9 +10,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
  */
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const { data, error } = await createAdminClient().rpc("dh_pulse");
+    const team = new URL(request.url).searchParams.get("team");
+    const valid = team && /^[0-9a-f-]{36}$/i.test(team) ? team : null;
+    const { data, error } = await createAdminClient().rpc("dh_pulse", valid ? { p_team: valid } : {});
     if (error) throw error;
     return NextResponse.json(data, {
       headers: {

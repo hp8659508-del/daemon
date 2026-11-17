@@ -940,6 +940,7 @@ function TeamsTab({ w, full, cmd, paddle, stageOf, staff, scope }: Ctx) {
           <div className="relative min-w-[200px] flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" /><input className="field pl-9" placeholder="Search team, username or paddle" value={q} onChange={e => setQ(e.target.value)} /></div>
           <a className="key key-sm" href="/api/export" download title="Every team's cards, problem statement and penalties"><FileDown size={13} /> Eval spreadsheet</a>
           <a className="key key-sm" href="/dashboard/eval" target="_blank" rel="noreferrer"><Printer size={13} /> Eval PDF</a>
+          {staff.isHost && <a className="key key-sm" href="/api/backup" download title="Everything in the database as one file. Download one before each round."><FileDown size={13} /> Full backup</a>}
           <div className="flex items-center gap-1">
             <button className="key key-sm" data-on={pwFilter === "all"} onClick={() => setPwFilter("all")}>All ({w.teams.length})</button>
             <button className="key key-sm" data-on={pwFilter === "default"} onClick={() => setPwFilter("default")} title="Teams still using default password">Default ({defaultCount})</button>

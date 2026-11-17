@@ -168,10 +168,20 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
     };
   }, []);
 
+  const [unsaved, setUnsaved] = useState<Record<string, boolean>>({});
   const pick = async (n: number) => {
-    setPicks(p => ({ ...p, [q.id]: n }));
-    try { await call({ action: "answer", question_id: q.id, choice: n }); }
-    catch (e) { if (/Time is up|submitted/i.test(String(e))) submit(); }
+    const qid = q.id;
+    setPicks(p => ({ ...p, [qid]: n }));
+    setUnsaved(u => ({ ...u, [qid]: true }));
+    // keep trying on a shaky connection; only the latest choice for a question matters
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try { await call({ action: "answer", question_id: qid, choice: n }); setUnsaved(u => ({ ...u, [qid]: false })); break; }
+      catch (e) {
+        if (/Time is up|submitted/i.test(String(e))) { submit(); break; }
+        if (/Invalid|not found|closed|isn't open/i.test(String(e))) break;
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+      }
+    }
     if (i < a.questions.length - 1) setTimeout(() => setI(x => Math.min(x + 1, a.questions.length - 1)), 260);
   };
 
@@ -188,8 +198,8 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
       <div className="rf-bar"><span style={{ transform: `scaleX(${pct})` }} className={hot ? "hot" : ""} /></div>
 
       <main className="rf-body">
-        <div className="rf-dots">{a.questions.map((x, n) => <button key={x.id} aria-label={`Question ${n + 1}`} data-on={n === i} data-done={picks[x.id] != null} onClick={() => setI(n)} />)}</div>
-        <p className="rf-qno">Question {i + 1} <span>/ {a.questions.length}</span></p>
+        <div className="rf-dots">{a.questions.map((x, n) => <button key={x.id} aria-label={`Question ${n + 1}`} data-on={n === i} data-done={picks[x.id] != null} data-unsaved={!!unsaved[x.id]} onClick={() => setI(n)} />)}</div>
+        <p className="rf-qno">Question {i + 1} <span>/ {a.questions.length}</span>{unsaved[q.id] && <span className="rf-unsaved">saving…</span>}</p>
         <h2 key={q.id} className="rf-q">{q.prompt}</h2>
         <div key={q.id + "o"} className="rf-opts">
           {q.options.map((o, n) => (

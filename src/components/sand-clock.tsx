@@ -38,8 +38,17 @@ export default function SandClock({
     host.current?.replaceChildren(e.el);
     let raf = 0, last = performance.now(); const t0 = last;
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // Battery: phones run this all day. Big glasses draw at ~30 fps, small ones (logo) at ~15 fps,
+    // weak phones lower still, and nothing is drawn while the glass is off-screen.
+    const weak = (navigator.hardwareConcurrency ?? 8) <= 4;
+    const frameMs = (size >= 80 ? 33 : 66) * (weak ? 1.5 : 1);
+    let visible = true;
+    const io = typeof IntersectionObserver !== "undefined" && host.current
+      ? new IntersectionObserver(([en]) => { visible = !!en?.isIntersecting; }, { rootMargin: "50px" }) : null;
+    if (io && host.current) io.observe(host.current);
     const tick = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (!visible || now - last < frameMs) { raf = requestAnimationFrame(tick); return; }
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
       const s = state.current;
       if (s.mode === "loader") {
         // constant-rate drain (real sand flows at a steady rate), then a flip that hands over
@@ -58,7 +67,7 @@ export default function SandClock({
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => { cancelAnimationFrame(raf); io?.disconnect(); };
   }, [size, tone, particles]);
 
   return <span ref={host} className={className} role="img" aria-label={title ?? "Sand clock"} style={{ display: "inline-block", width: size, height: size * 170 / 120, lineHeight: 0 }} />;
