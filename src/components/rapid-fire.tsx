@@ -96,6 +96,16 @@ export default function RapidFire() {
   );
 }
 
+function cleanPrompt(text: string) {
+  if (!text) return "";
+  return text
+    .replace(/â–¶/g, "▶")
+    .replace(/âš¡/g, "⚡")
+    .replace(/â€™/g, "'")
+    .replace(/â€œ/g, '"')
+    .replace(/â€/g, '"');
+}
+
 function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: Record<string, unknown>) => Promise<void> }) {
   const a = s.active!;
   const sec = s.sections.find(x => x.id === a.id)!;
@@ -106,7 +116,10 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
   const [strikes, setStrikes] = useState(0);
   const lastFlag = useRef(0);
   const [fs, setFs] = useState(true);
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const ending = useRef(false);
+  const detachListeners = useRef<() => void>(() => {});
   const end = new Date(a.ends_at).getTime();
   const left = Math.max(0, end - now);
   const total = sec.time_limit_sec * 1000;
@@ -114,9 +127,14 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
   const answered = Object.values(picks).filter(v => v !== null && v !== undefined).length;
 
   const submit = useCallback(async () => {
-    if (ending.current) return; ending.current = true;
-    await reload({ action: "submit", section_id: a.id });
+    if (ending.current) return;
+    ending.current = true;
+    setSubmitting(true);
+    setWarn(false);
+    setConfirmSubmit(false);
+    detachListeners.current();
     try { if (document.fullscreenElement) await document.exitFullscreen(); } catch {}
+    await reload({ action: "submit", section_id: a.id });
   }, [a.id, reload]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now() + skew), 250); return () => clearInterval(t); }, [skew]);
@@ -126,16 +144,22 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
   // lock-down: report leaving, trap back/reload, keep full screen
   useEffect(() => {
     const flag = (kind: string) => {
+      if (ending.current) return;
       // blur + hidden + fullscreen-exit usually fire together for one exit: count it once
       const t = Date.now(); if (t - lastFlag.current < 1500) return; lastFlag.current = t;
       fetch("/api/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "flag", kind }), keepalive: true }).catch(() => null);
       setWarn(true); setStrikes(n => n + 1);
     };
-    const vis = () => { if (document.hidden) flag("left_screen"); };
-    const blur = () => flag("lost_focus");
-    const fsc = () => { const on = !!document.fullscreenElement; setFs(on); if (!on) flag("exited_fullscreen"); };
-    const unload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
-    const pop = () => { history.pushState(null, "", location.href); flag("back_button"); };
+    const vis = () => { if (ending.current) return; if (document.hidden) flag("left_screen"); };
+    const blur = () => { if (ending.current) return; flag("lost_focus"); };
+    const fsc = () => {
+      if (ending.current) return;
+      const on = !!document.fullscreenElement;
+      setFs(on);
+      if (!on) flag("exited_fullscreen");
+    };
+    const unload = (e: BeforeUnloadEvent) => { if (ending.current) return; e.preventDefault(); e.returnValue = ""; };
+    const pop = () => { if (ending.current) return; history.pushState(null, "", location.href); flag("back_button"); };
     history.pushState(null, "", location.href);
     document.addEventListener("visibilitychange", vis);
     window.addEventListener("blur", blur);
@@ -147,7 +171,8 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
     document.addEventListener("copy", block);
     document.documentElement.classList.add("rf-locked");
     setFs(!!document.fullscreenElement || !document.documentElement.requestFullscreen);
-    return () => {
+
+    detachListeners.current = () => {
       document.removeEventListener("visibilitychange", vis);
       window.removeEventListener("blur", blur);
       document.removeEventListener("fullscreenchange", fsc);
@@ -156,6 +181,10 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
       document.removeEventListener("contextmenu", block);
       document.removeEventListener("copy", block);
       document.documentElement.classList.remove("rf-locked");
+    };
+
+    return () => {
+      detachListeners.current();
     };
   }, []);
 
@@ -181,25 +210,45 @@ function QuizScreen({ s, skew, reload }: { s: State; skew: number; reload: (b?: 
       <main className="rf-body">
         <div className="rf-dots">{a.questions.map((x, n) => <button key={x.id} aria-label={`Question ${n + 1}`} data-on={n === i} data-done={picks[x.id] != null} onClick={() => setI(n)} />)}</div>
         <p className="rf-qno">Question {i + 1} <span>/ {a.questions.length}</span></p>
-        <h2 key={q.id} className="rf-q">{q.prompt}</h2>
+        <h2 key={q.id} className="rf-q">{cleanPrompt(q.prompt)}</h2>
         <div key={q.id + "o"} className="rf-opts">
           {q.options.map((o, n) => (
             <button key={n} className="rf-opt" data-on={picks[q.id] === n} style={{ "--tone": TONE[n % 4], animationDelay: `${n * 60}ms` } as React.CSSProperties} onClick={() => pick(n)}>
-              <span className="rf-letter">{LETTER[n]}</span><span className="min-w-0 flex-1 text-left">{o}</span>
+              <span className="rf-letter">{LETTER[n]}</span><span className="min-w-0 flex-1 text-left">{cleanPrompt(o)}</span>
             </button>
           ))}
         </div>
       </main>
 
       <footer className="rf-foot">
-        <button className="rf-nav" disabled={i === 0} onClick={() => setI(i - 1)}><ChevronLeft size={18} /> Prev</button>
+        <button className="rf-nav" disabled={i === 0 || submitting} onClick={() => setI(i - 1)}><ChevronLeft size={18} /> Prev</button>
         <span className="text-sm text-[#9A90D6]">{answered}/{a.questions.length} answered</span>
         {i < a.questions.length - 1
-          ? <button className="rf-nav" onClick={() => setI(i + 1)}>Next <ChevronRight size={18} /></button>
-          : <button className="rf-submit" onClick={() => confirm(answered < a.questions.length ? `Submit with ${a.questions.length - answered} unanswered?` : "Submit this section? You can't change answers after.") && submit()}>Submit section</button>}
+          ? <button className="rf-nav" disabled={submitting} onClick={() => setI(i + 1)}>Next <ChevronRight size={18} /></button>
+          : <button className="rf-submit" disabled={submitting} onClick={() => setConfirmSubmit(true)}>{submitting ? "Submitting…" : "Submit section"}</button>}
       </footer>
 
-      {(warn || !fs) && (
+      {confirmSubmit && !ending.current && (
+        <div className="rf-warn" style={{ background: "rgba(14,11,43,.96)" }}>
+          <CheckCircle2 size={40} className="text-[#3FD8FF]" />
+          <p className="font-display mt-3 text-2xl font-black text-white">Submit section?</p>
+          <p className="mt-2 max-w-xs text-sm text-[#B9B2E8]">
+            {answered < a.questions.length
+              ? `You answered ${answered} of ${a.questions.length} questions (${a.questions.length - answered} unanswered). Once submitted, answers for this section are locked.`
+              : "Once submitted, your answers for this section are locked and points will be scored."}
+          </p>
+          <div className="mt-5 flex gap-3">
+            <button className="rf-nav !border-[#B9B2E8]/40 !text-white" onClick={() => setConfirmSubmit(false)}>
+              Keep reviewing
+            </button>
+            <button className="rf-submit !bg-[#3FD8FF] !text-[#0E0B2B]" onClick={() => { setConfirmSubmit(false); submit(); }}>
+              Yes, submit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(warn || !fs) && !ending.current && !confirmSubmit && (
         <div className="rf-warn">
           <ShieldAlert size={36} />
           <p className="font-display mt-3 text-2xl font-black">Stay on the quiz</p>

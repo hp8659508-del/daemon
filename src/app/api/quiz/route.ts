@@ -77,7 +77,17 @@ export async function POST(request: Request) {
       const { error } = await db.rpc("quiz_submit_section", { p_team: teamId, p_section: String(body.section_id) });
       if (error) return fail(error.message);
     } else if (action === "flag") {
-      await db.from("quiz_flags").insert({ team_id: teamId, kind: String(body.kind ?? "left_screen").slice(0, 40) });
+      // Only record a flag if the team has an unsubmitted, currently running section
+      const now = new Date().toISOString();
+      const { data: activeRuns } = await db
+        .from("quiz_runs")
+        .select("section_id")
+        .eq("team_id", teamId)
+        .is("submitted_at", null)
+        .gt("ends_at", now);
+      if (activeRuns && activeRuns.length > 0) {
+        await db.from("quiz_flags").insert({ team_id: teamId, kind: String(body.kind ?? "left_screen").slice(0, 40) });
+      }
       return NextResponse.json({ ok: true });
     }
 
