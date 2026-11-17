@@ -145,7 +145,23 @@ async function modeLogin() {
   const rows = await readCsv(args.teams);
   const ramp = Number(args.ramp || 20) * 1000;
   console.log(`Login storm: ${USERS} sign-ins over ${ramp / 1000}s, rotating ${rows.length} accounts`);
-  await Promise.all(Array.from({ length: USERS }, async (_, i) => { await sleep(Math.random() * ramp); const [u, p] = rows[i % rows.length]; await signIn(u, p); }));
+  // behaves exactly like the real login page: on "busy" (429/5xx) it waits and retries (same schedule as the app)
+  const WAITS = [2000, 4000, 8000, 12000, 16000, 20000];
+  await Promise.all(Array.from({ length: USERS }, async (_, i) => {
+    await sleep(Math.random() * ramp);
+    const [u, p] = rows[i % rows.length];
+    const t0 = performance.now();
+    for (let a = 0; ; a++) {
+      const email = u.includes("@") ? u : `${u.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase()}@teams.daemonhour.invalid`;
+      const r = await fetch(`${SB}/auth/v1/token?grant_type=password`, { method: "POST", headers: SBH, body: JSON.stringify({ email, password: p }) }).catch(() => null);
+      const status = r ? r.status : "network";
+      if (r) await r.arrayBuffer().catch(() => null);
+      rec("sign-in attempts (each try)", 0, !!r && r.ok, status);
+      const busy = !r || r.status === 429 || r.status >= 500;
+      if (!busy || a >= WAITS.length) { rec("people signed in (after the app's retries)", performance.now() - t0, !!r && r.ok, busy ? "gave up while busy" : status); break; }
+      await sleep(WAITS[a] + Math.random() * 1500);
+    }
+  }));
 }
 
 /* PROPAGATION: how long until an admin change reaches team screens (run while a watch test runs in another terminal) */
