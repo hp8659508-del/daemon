@@ -34,9 +34,20 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Light check only: read the session from the cookie (network only when the token
+  // needs refreshing), and never wait more than 2.5 s. Pages and APIs verify the user
+  // themselves, so this is just for the login/dashboard redirects.
+  let user: unknown = null;
+  try {
+    const res = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 2500)),
+    ]);
+    if (res === null) return response;            // auth service slow: let the page handle it
+    user = res.data.session?.user ?? null;
+  } catch {
+    return response;
+  }
 
   const path = request.nextUrl.pathname;
 
@@ -57,6 +68,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // API routes check auth themselves, so they skip middleware entirely
+    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
