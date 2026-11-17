@@ -6,7 +6,7 @@
 export type LRound = "quiz" | "auction" | "spin" | "bingo" | "penalty" | "other";
 export type LRow = { id: string; round: LRound; label: string; created_at: string; points_before: number; points_after: number; minutes_before: number; minutes_after: number };
 
-type Tx = { id: string; team_id: string; description: string; points: number; created_at: string };
+type Tx = { id: string; team_id: string; description: string; points: number; created_at: string; wallet?: string };
 type Pu = { id: string; team_id: string; target_team_id: string | null; name: string; minutes_delta: number; source: string; created_at: string };
 type Card = { team_id: string; name: string; source: string };
 
@@ -27,8 +27,9 @@ export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] 
     else if (/^Bingo/i.test(d)) round = "bingo";
     else if (/^Penalty:/i.test(d)) round = "penalty";
     else if (/spin/i.test(d)) round = "spin";
-    const label = /^Auction:/i.test(d) ? `${strip(d)} (bought for ${-t.points})` : /^Bingo/i.test(d) ? d.replace(/^Bingo:\s*/i, "Dare: ") : strip(d);
-    ev.push({ id: t.id, at: +new Date(t.created_at), iso: t.created_at, round, label, dp: Number(t.points), dm: 0 });
+    const label = /^Auction:/i.test(d) ? `${strip(d)} (paid ${-t.points} auction pts)` : /^Bingo/i.test(d) ? d.replace(/^Bingo:\s*/i, "Dare: ") : strip(d);
+    // auction-wallet spending never touches main points: the row shows, the points don't move
+    ev.push({ id: t.id, at: +new Date(t.created_at), iso: t.created_at, round, label, dp: t.wallet === "auction" ? 0 : Number(t.points), dm: 0 });
   }
   for (const p of pus) {
     const lands = p.target_team_id ? p.target_team_id === teamId : p.team_id === teamId;

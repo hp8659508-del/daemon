@@ -2596,4 +2596,199 @@ $$;
 revoke all on function public.dh_pulse(uuid) from public;
 grant execute on function public.dh_pulse(uuid) to anon, authenticated, postgres, service_role;
 
+-- ======================= ui_v15_auction_wallet.sql =======================
+-- ============================================================================
+-- DAEMON HOUR · v15 — separate AUCTION wallet. Run AFTER ui_v14_resilience.sql. Re-runnable.
+--
+--  • MAIN points  = the real score (Rapid Fire, Bingo, Spin, penalties, Points tab,
+--                   and any card that GIVES points). Shown to teams and on the leaderboard.
+--  • AUCTION points = a separate wallet only for paying for auction cards.
+--                   Every team starts with the auction budget (default 1000) and it
+--                   never mixes into main points.
+-- ============================================================================
+
+alter table public.transactions add column if not exists wallet text not null default 'main';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'transactions_wallet_check') then
+    alter table public.transactions add constraint transactions_wallet_check check (wallet in ('main','auction'));
+  end if;
+end $$;
+create index if not exists transactions_team_wallet_idx on public.transactions(team_id, wallet);
+
+alter table public.event_settings add column if not exists auction_budget integer not null default 1000;
+
+-- what teams already paid at the auction comes out of the auction wallet, not their score
+update public.transactions set wallet = 'auction' where transaction_type = 'purchase' and wallet = 'main';
+
+-- main points only (score, leaderboard, ledgers)
+create or replace function public.team_balances()
+returns table(team_id uuid, balance bigint) language sql stable security definer set search_path = '' as $$
+  select team_id, coalesce(sum(points), 0)::bigint from public.transactions where wallet = 'main' group by team_id
+$$;
+create or replace function public.dh_pts(p_team uuid) returns bigint language sql stable security definer set search_path = '' as $$
+  select coalesce(sum(points),0)::bigint from public.transactions where team_id = p_team and wallet = 'main'
+$$;
+-- auction wallet = budget + everything spent/refunded at the auction
+create or replace function public.dh_auction_pts(p_team uuid) returns bigint language sql stable security definer set search_path = '' as $$
+  select coalesce((select auction_budget from public.event_settings where id = true), 1000)::bigint
+       + coalesce((select sum(points) from public.transactions where team_id = p_team and wallet = 'auction'), 0)::bigint
+$$;
+
+-- selling: pays from the AUCTION wallet
+create or replace function public.admin_sell_lot(p_item_id uuid, p_team_id uuid, p_price integer, p_admin uuid, p_cell integer default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  v_item public.auction_items%rowtype; v_wallet bigint; v_sold integer; v_tx uuid; v_purchase uuid; v_card uuid; v_pb bigint; v_mb integer;
+begin
+  perform 1 from public.teams where id = p_team_id for update;
+  if not found then raise exception 'Team not found'; end if;
+  select * into v_item from public.auction_items where id = p_item_id for update;
+  if not found then raise exception 'Lot not found'; end if;
+  if v_item.pool = 'spin' then raise exception 'That is a spin wheel segment, not an auction card.'; end if;
+  if p_price is null or p_price < 0 then raise exception 'Invalid price'; end if;
+  if v_item.min_price is not null and p_price < v_item.min_price then raise exception 'Price is below the minimum (%)', v_item.min_price; end if;
+  if v_item.max_price is not null and p_price > v_item.max_price then raise exception 'Price is above the maximum (%)', v_item.max_price; end if;
+  select count(*) into v_sold from public.purchases where item_id = p_item_id;
+  if v_sold >= greatest(v_item.quantity, 1) then raise exception 'This slot is already sold. Use Copy to open another slot.'; end if;
+  if v_item.kind = 'bingo' and coalesce(v_item.effect->>'mode','cell') <> 'column' and p_cell is null then
+    raise exception 'Pick the bingo box this card covers.';
+  end if;
+  v_wallet := public.dh_auction_pts(p_team_id);
+  if v_wallet < p_price then raise exception 'Team has only % auction points', v_wallet; end if;
+  v_pb := public.dh_pts(p_team_id); v_mb := public.dh_mins(p_team_id);
+
+  if p_price > 0 then
+    insert into public.transactions(team_id, description, points, transaction_type, created_by, wallet)
+    values (p_team_id, 'Auction: ' || v_item.item_name, -p_price, 'purchase', p_admin, 'auction') returning id into v_tx;
+  end if;
+  insert into public.purchases(team_id, item_id, transaction_id, purchase_price)
+  values (p_team_id, p_item_id, v_tx, p_price) returning id into v_purchase;
+  insert into public.team_cards(team_id, purchase_id, item_id, name, kind, effect, source, created_by)
+  values (p_team_id, v_purchase, p_item_id, v_item.item_name, v_item.kind, v_item.effect, 'auction', p_admin) returning id into v_card;
+  perform public.dh_apply_card(v_card, p_cell, p_admin);          -- a "+points" card adds to MAIN points
+  perform public.dh_ledger(p_team_id, 'auction', v_item.item_name || ' (paid ' || p_price || ' auction pts)', v_pb, v_mb, v_card, p_admin);
+  return jsonb_build_object('purchase_id', v_purchase, 'card_id', v_card, 'kind', v_item.kind, 'remaining', public.dh_auction_pts(p_team_id));
+end $$;
+
+do $$
+declare f text;
+begin
+  foreach f in array array['team_balances()','dh_pts(uuid)','dh_auction_pts(uuid)','admin_sell_lot(uuid, uuid, integer, uuid, integer)'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+    execute format('grant execute on function public.%s to postgres, service_role', f);
+  end loop;
+end $$;
+
+-- ======================= ui_v16_admin_undo.sql =======================
+-- ============================================================================
+-- DAEMON HOUR · v16 — admins can undo anything on a team. Run AFTER ui_v15. Re-runnable.
+--   admin_card_remove   : take a card away (void the sale / undo the spin / undo a trump copy)
+--   admin_card_unuse    : a "used" card becomes usable again (an undone swap swaps back)
+--   admin_penalty_remove: delete a penalty and give back what it took
+--   admin_ps_unlock     : make a swapped problem statement editable again
+-- ============================================================================
+
+-- swaps now remember who they swapped with (so they can be undone)
+create or replace function public.admin_swap_ps(p_card uuid, p_target uuid, p_admin uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare c public.team_cards%rowtype; a public.teams%rowtype; b public.teams%rowtype;
+begin
+  select * into c from public.team_cards where id = p_card for update;
+  if not found or c.effect->>'perk' <> 'swap_ps' then raise exception 'Swap card not found'; end if;
+  if c.status = 'spent' then raise exception 'This team has already used its swap.'; end if;
+  if c.team_id = p_target then raise exception 'Pick a different team.'; end if;
+  select * into a from public.teams where id = c.team_id for update;
+  select * into b from public.teams where id = p_target for update;
+  if b.id is null then raise exception 'Team not found'; end if;
+  if coalesce(a.problem_statement,'') = '' or coalesce(b.problem_statement,'') = '' then raise exception 'Both teams need a problem statement logged first.'; end if;
+  if a.ps_locked or b.ps_locked then raise exception 'One of these problem statements was already swapped and is final.'; end if;
+  update public.teams set problem_statement = b.problem_statement, ps_locked = true where id = a.id;
+  update public.teams set problem_statement = a.problem_statement, ps_locked = true where id = b.id;
+  update public.team_cards set status = 'spent', spent_at = now(), detail = 'Swapped with ' || b.team_name,
+    applied = applied || jsonb_build_object('swap_target', b.id) where id = p_card;
+  insert into public.activity_log(team_id, kind, action, label, actor) values
+    (a.id, 'auction', 'swapped', 'Problem statement swapped with ' || b.team_name, p_admin),
+    (b.id, 'auction', 'swapped', 'Problem statement swapped by ' || a.team_name, p_admin);
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.admin_card_unuse(p_card uuid, p_admin uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare c public.team_cards%rowtype; v_target uuid; a public.teams%rowtype; b public.teams%rowtype;
+begin
+  select * into c from public.team_cards where id = p_card for update;
+  if not found then raise exception 'Card not found'; end if;
+  if c.status <> 'spent' then raise exception 'This card isn''t marked as used.'; end if;
+  if c.effect->>'perk' = 'swap_ps' then
+    v_target := nullif(c.applied->>'swap_target', '')::uuid;
+    if v_target is null then   -- older swaps: find the other team by name
+      select id into v_target from public.teams where 'Swapped with ' || team_name = c.detail limit 1;
+    end if;
+    if v_target is not null then
+      select * into a from public.teams where id = c.team_id for update;
+      select * into b from public.teams where id = v_target for update;
+      update public.teams set problem_statement = b.problem_statement, ps_locked = false where id = a.id;
+      update public.teams set problem_statement = a.problem_statement, ps_locked = false where id = b.id;
+    end if;
+  end if;
+  update public.team_cards set status = 'held', spent_at = null, detail = null where id = p_card;
+  insert into public.activity_log(team_id, kind, action, label, actor) values (c.team_id, 'auction', 'reset', 'Card made usable again: ' || c.name, p_admin);
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.admin_card_remove(p_card uuid, p_admin uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare c public.team_cards%rowtype;
+begin
+  select * into c from public.team_cards where id = p_card for update;
+  if not found then raise exception 'Card not found'; end if;
+  if c.status = 'spent' then perform public.admin_card_unuse(p_card, p_admin); end if;   -- undo its use first
+  if c.source = 'auction' and c.purchase_id is not null then
+    perform public.admin_undo_sale(c.purchase_id);          -- refunds the auction wallet + undoes effects (and any trump copy)
+  else
+    perform public.dh_revert_card(p_card, p_admin);          -- spin result / trump copy / manual
+  end if;
+  -- a trump copy removed on its own: the trump card goes back to "choose a card"
+  if c.source = 'trump' and c.purchase_id is not null then
+    update public.team_cards set status = 'pending', detail = 'Choose which card it copies'
+     where purchase_id = c.purchase_id and kind = 'trump' and status = 'resolved';
+  end if;
+  insert into public.activity_log(team_id, kind, action, label, actor) values (c.team_id, 'auction', 'removed', 'Card removed by an organiser: ' || c.name, p_admin);
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.admin_penalty_remove(p_id uuid, p_admin uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare p public.penalties%rowtype;
+begin
+  select * into p from public.penalties where id = p_id for update;
+  if not found then raise exception 'Penalty not found'; end if;
+  if p.landed_team_id is not null then
+    -- what it took from the team that received it (written within seconds of the penalty)
+    delete from public.transactions where team_id = p.landed_team_id and description = 'Penalty: ' || p.reason
+       and created_at between p.created_at - interval '10 seconds' and p.created_at + interval '10 seconds';
+    delete from public.team_powerups where team_id = p.landed_team_id and name = 'Penalty: ' || p.reason
+       and created_at between p.created_at - interval '10 seconds' and p.created_at + interval '10 seconds';
+    delete from public.team_ledger where team_id = p.landed_team_id and round = 'penalty' and label = 'Penalty: ' || p.reason
+       and created_at between p.created_at - interval '10 seconds' and p.created_at + interval '10 seconds';
+  end if;
+  delete from public.penalties where id = p_id;
+  insert into public.activity_log(team_id, kind, action, label, actor) values (p.team_id, 'penalty', 'removed', 'Penalty removed: ' || p.reason, p_admin);
+  return jsonb_build_object('ok', true, 'note', 'Shield cards used by this penalty stay used: use "Make usable again" on them if needed.');
+end $$;
+
+create or replace function public.admin_ps_unlock(p_team uuid)
+returns void language sql security definer set search_path = '' as $$
+  update public.teams set ps_locked = false where id = p_team
+$$;
+
+do $$
+declare f text;
+begin
+  foreach f in array array['admin_swap_ps(uuid, uuid, uuid)','admin_card_unuse(uuid, uuid)','admin_card_remove(uuid, uuid)','admin_penalty_remove(uuid, uuid)','admin_ps_unlock(uuid)'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+    execute format('grant execute on function public.%s to postgres, service_role', f);
+  end loop;
+end $$;
+
 select * from public.daemon_health();
