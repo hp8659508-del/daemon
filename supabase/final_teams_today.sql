@@ -1,20 +1,38 @@
 -- ============================================================================
--- DAEMON HOUR · final teams for today (18 Nov) — from daemon_hour.xlsx
---  • team numbers (paddles) 1–29 exactly as in the sheet
---  • every team NOT in the sheet is removed (with its sign-in, cards, points, history)
+-- DAEMON HOUR · final teams for today (18 Nov) — 25 teams
+--  • team numbers (paddles) preserved exactly as assigned (gaps preserved)
+--  • Boomers, Firewalls, GPT Warriors, Mechforge + unlisted test teams removed
 --  • one venue only: everyone is in Incubation Center (Idea Lab admins move there too)
--- Stops without changing anything if a sheet name can't be matched to a team on the site.
 -- ============================================================================
 begin;
 
 create temp table final_teams(paddle int, name text) on commit drop;
 insert into final_teams values
-  (1,'AppVengers'),(2,'Boomers'),(3,'Code berry'),(4,'Codelulu'),(5,'DBC'),
-  (6,'Energy'),(7,'Firewalls'),(8,'Alpha'),(9,'Frontier'),(10,'GPT Warriors'),
-  (11,'Hakuna Matata'),(12,'Immortal'),(13,'Logic Legends'),(14,'LoopX'),(15,'Mechforge'),
-  (16,'NuronX'),(17,'Quadra'),(18,'Quantum Crew'),(19,'S⁴'),(20,'Sentinel'),
-  (21,'Straw Hats'),(22,'Synergy'),(23,'Team Raju'),(24,'Team TRPS'),(25,'Techies'),
-  (26,'Teen-Bhai-Teeno-tabahi'),(27,'The Outliers'),(28,'TriCore'),(29,'Velocity Build');
+  (1,'AppVengers'),
+  (3,'Code berry'),
+  (4,'Codelulu'),
+  (5,'DBC'),
+  (6,'Energy'),
+  (8,'Alpha'),
+  (9,'Frontier'),
+  (11,'Hakuna Matata'),
+  (12,'Immortal'),
+  (13,'Logic Legends'),
+  (14,'LoopX'),
+  (16,'NuronX'),
+  (17,'Quadra'),
+  (18,'Quantum Crew'),
+  (19,'S⁴'),
+  (20,'Sentinel'),
+  (21,'Straw Hats'),
+  (22,'Synergy'),
+  (23,'Team Raju'),
+  (24,'Team TRPS'),
+  (25,'Techies'),
+  (26,'Teen-Bhai-Teeno-tabahi'),
+  (27,'The Outliers'),
+  (28,'TriCore'),
+  (29,'Velocity Build');
 
 -- forgiving match: ignore case, spaces, punctuation and a trailing "s" (Immortal = Immortals)
 create or replace function pg_temp.k(s text) returns text language sql immutable as
@@ -41,7 +59,7 @@ delete from auth.users where id in (
   where p.team_id is not null and p.team_id not in (select team_id from matched));
 delete from public.teams where id not in (select team_id from matched);
 
--- 2) new team numbers (clear first so numbers can swap without clashing)
+-- 2) set preserved team numbers (clear first so numbers can swap without clashing)
 update public.teams set paddle = null;
 update public.teams t set paddle = m.paddle from matched m where t.id = m.team_id;
 
@@ -53,7 +71,7 @@ update public.event_settings set live_lots = coalesce(live_lots, '{}'::jsonb) - 
 
 commit;
 
--- check: 29 rows, numbers 1–29, all Incubation Center
-select t.paddle as no, t.team_name, t.bay,
+-- check: 25 rows, numbers preserved, all Incubation Center
+select t.paddle as "#", t.team_name, t.bay,
        coalesce((select sum(x.points) from public.transactions x where x.team_id = t.id and coalesce(x.wallet,'main') <> 'auction'), 0) as main_points
 from public.teams t order by t.paddle;
