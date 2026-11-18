@@ -296,3 +296,7 @@ html.rf-locked, html.rf-locked body { background: #07061A !important; height: 10
 .ps-steps li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
 .ps-steps li span { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border-radius: 7px; background: #ECEEFF; color: #5136E0; font: 800 11px Inter, sans-serif; }
 .ps-box { border-radius: 12px; background: #F6F5FF; padding: 12px 14px; }
+
+/* closed round: grey line at the end of its ledger table */
+.ledger tr.ledger-closed td { background: #F3F2F8; color: #8A86A6; border-top: 1px dashed #B9B5D3; }
+.ledger tr.ledger-closed b { color: #6E6A8C; }

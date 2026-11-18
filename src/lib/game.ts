@@ -257,7 +257,7 @@ export function teamSlice(w: World, teamId: string) {
     lineBonus: w.settings.bingo_line_bonus,
     broadcast: [w.settings.broadcasts?.all, team?.bay ? w.settings.broadcasts?.[team.bay] : null, w.settings.broadcast].filter(Boolean).join("   ◆   ") || null,
     liveLot: lotVisible && lot ? { ...lot, item: w.items.find(i => i.id === lot.item_id) ?? null, sold: w.purchases.filter(p => p.item_id === lot.item_id).length } : null,
-    ledger: buildLedger(teamId, w.txs, w.teamPowerups, w.cards),
+    ledger: buildLedger(teamId, w.txs, w.teamPowerups, w.cards, w.stages),
     catalogue: w.items.filter(i => i.is_active && i.pool !== "spin").map(i => {
       const pu = w.powerups.find(p => p.id === i.powerup_id);
       return { ...i, sold: w.purchases.filter(p => p.item_id === i.id).length, mine: w.purchases.filter(p => p.item_id === i.id && p.team_id === teamId).length,
