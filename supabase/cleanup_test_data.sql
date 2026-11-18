@@ -37,6 +37,7 @@ begin;
   delete from public.activity_log where kind <> 'quiz';
   delete from public.team_stages where activity in ('auction', 'spin', 'bingo');
   update public.teams set problem_statement = null, ps_locked = false, bingo_mode = null;
+  do $$ begin if exists (select 1 from information_schema.columns where table_schema='public' and table_name='teams' and column_name='ps_no') then update public.teams set ps_no = null; end if; end $$;
   update public.event_settings set live_lots = '{}'::jsonb, live_lot = null where id = true;
 commit;
 

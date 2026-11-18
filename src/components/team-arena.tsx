@@ -73,6 +73,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
               <div><p className="eyebrow">{v.team?.bay ?? "Venue to be announced"} · paddle {String(paddle).padStart(2, "0")}</p><h2 className="font-display mt-1 text-4xl">Your team</h2></div>
               <span className="chip">{v.members.length} member{v.members.length === 1 ? "" : "s"}</span>
             </div>
+            <PSBrief v={v} />
             <MemberTiles teamId={v.team?.id ?? ""} members={v.members} />
             <p className="text-xs text-muted">See a wrong detail or a missing teammate? Tap <b>Need help</b> and an organiser will fix it.</p>
           </section>
@@ -453,16 +454,47 @@ function HelpButton({ open }: { open: boolean }) {
   );
 }
 
+/* ---------------- Your problem statement: number + beginner-friendly brief ---------------- */
+function PSBrief({ v }: { v: TeamView }) {
+  const p = v.psDetail;
+  if (!v.problemStatement) return (
+    <div className="ps-card ps-empty"><p className="ps-eyebrow">Problem statement</p><p className="mt-1 text-sm text-muted">Not allotted yet. An organiser will give you one.</p></div>
+  );
+  if (!p) return (
+    <div className="ps-card"><p className="ps-eyebrow">Problem statement {v.psLocked && "· final"}</p><p className="mt-1 font-semibold">{v.problemStatement}</p></div>
+  );
+  return (
+    <div className="ps-card">
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="ps-no"><span>PS</span>{String(p.no).padStart(2, "0")}</div>
+        <div className="min-w-0 flex-1">
+          <p className="ps-eyebrow">Your problem statement {v.psLocked && "· final"}</p>
+          <h3 className="font-display mt-1 text-2xl font-black">{p.title}</h3>
+          <p className="mt-1.5 text-[15px] leading-6">{p.goal}</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-[1.4fr_1fr]">
+        <div>
+          <p className="ps-eyebrow">Build this (must-have)</p>
+          <ol className="ps-steps">{p.build.map((b, i) => <li key={i}><span>{i + 1}</span>{b}</li>)}</ol>
+        </div>
+        <div className="space-y-3">
+          {p.bonus && <div className="ps-box"><p className="ps-eyebrow">⭐ Bonus (if time allows)</p><p className="mt-1 text-sm">{p.bonus}</p></div>}
+          {p.hint && <div className="ps-box"><p className="ps-eyebrow">💡 Android hint</p><p className="mt-1 font-mono text-[12px] leading-5">{p.hint}</p></div>}
+          <div className="ps-box"><p className="ps-eyebrow">⏱ You have 3 hours</p><p className="mt-1 text-sm">Finish the must-haves first, make one clean result screen, then try the bonus.</p></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Your cards, problem statement, penalties ---------------- */
 function MyCards({ v }: { v: TeamView }) {
   const me = v.team?.id ?? "";
   return (
     <div className="panel p-5 lg:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-display text-lg font-bold">Your cards</h3><span className="chip">{v.cards.length} held</span></div>
-      <div className="well mt-4 px-4 py-3">
-        <p className="text-[10px] font-bold uppercase tracking-[.18em] text-muted">Problem statement {v.psLocked && "· final"}</p>
-        <p className="mt-1 text-sm font-semibold">{v.problemStatement || <span className="font-normal text-faint">Not assigned yet</span>}</p>
-      </div>
+      <div className="mt-4"><PSBrief v={v} /></div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {v.cards.length === 0 ? <div className="sm:col-span-2"><Empty title="No cards yet">Cards you win at the auction show here.</Empty></div> : v.cards.map(c => {
           const auto = ["time", "points", "bingo"].includes(c.kind);

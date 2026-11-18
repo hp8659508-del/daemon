@@ -422,10 +422,21 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
       </div>
       <div className="mt-3">
         <p className="eyebrow mb-1">Problem statement {t.ps_locked && <><span className="text-ok">· final (swapped)</span> <button className="ml-2 underline decoration-dotted" onClick={() => confirm("Make this problem statement editable again? (The swap card stays used; to undo the swap itself, use ↶ on the swap card.)") && cmd.run({ action: "ps_unlock", team_id: t.id })}>unlock</button></>}</p>
-        {t.ps_locked ? <p className="well p-2 text-sm">{t.problem_statement}</p> : (
+        {t.ps_locked ? <p className="well p-2 text-sm">{t.problem_statement}</p> : full.psPool.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Picker className="min-w-[260px] flex-1" placeholder="Allot from the pool of 30…" value={t.ps_no ? String(t.ps_no) : ""}
+              onChange={v => { const n = Number(v); const p = full.psPool.find(x => x.no === n); if (p && confirm(`Allot PS ${String(n).padStart(2, "0")} · ${p.title} to ${t.team_name}?`)) cmd.run({ action: "ps_set", team_id: t.id, ps_no: n }); }}
+              options={full.psPool.map(p => {
+                const taken = full.teams.filter(x => x.ps_no === p.no && x.id !== t.id).map(x => x.team_name);
+                return { value: String(p.no), label: `PS ${String(p.no).padStart(2, "0")} · ${p.title}`, hint: taken.length ? `Also with: ${taken.join(", ")}` : p.goal };
+              })} />
+            {t.problem_statement && <button className="key key-sm" title="Remove this team's problem statement" onClick={() => confirm(`Clear ${t.team_name}'s problem statement?`) && cmd.run({ action: "ps_set", team_id: t.id, text: "" })}>Clear</button>}
+          </div>
+        ) : (
           <div className="flex gap-2"><input className="field flex-1 text-sm" placeholder="Type it once the team draws it" value={ps} onChange={e => setPs(e.target.value)} />
             <button className="key key-sm" disabled={ps === (t.problem_statement ?? "")} onClick={() => cmd.run({ action: "ps_set", team_id: t.id, text: ps })}>Save</button></div>
         )}
+        {t.ps_no && (() => { const p = full.psPool.find(x => x.no === t.ps_no); return p ? <p className="mt-1.5 text-xs text-muted">{p.goal}</p> : null; })()}
       </div>
       {cards.length === 0 ? <p className="mt-3 text-sm text-muted">No cards yet.</p> : (["auction", "spin"] as const).map(round => {
         const rows = shown.filter(c => (round === "spin" ? c.source === "spin" : c.source !== "spin"));

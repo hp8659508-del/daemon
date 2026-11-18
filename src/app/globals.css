@@ -285,3 +285,14 @@ html.rf-locked, html.rf-locked body { background: #07061A !important; height: 10
 @supports (height: 100dvh) { .rf-lock { height: 100dvh; } }
 .rf-unsaved { margin-left: 10px; color: #FF9A5C; letter-spacing: .1em; text-transform: none; animation: rfblink 1s steps(2) infinite; }
 .rf-dots button[data-unsaved="true"] { background: #FF9A5C; }
+
+/* ---------- problem statement brief ---------- */
+.ps-card { border: 1.5px solid #0E0B2B; border-radius: 16px; background: #fff; padding: 20px; box-shadow: 5px 5px 0 #6B4BFF; }
+.ps-empty { box-shadow: none; border-style: dashed; background: #FAF9FF; }
+.ps-eyebrow { font: 700 10px Inter, sans-serif; letter-spacing: .18em; text-transform: uppercase; color: #6E6A88; }
+.ps-no { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 16px; background: #0E0B2B; color: #fff; font: 900 30px/1 "Inter Tight", sans-serif; }
+.ps-no span { display: block; font: 700 9px Inter, sans-serif; letter-spacing: .2em; color: #C9B8FF; margin-bottom: -6px; }
+.ps-steps { margin-top: 8px; display: grid; gap: 8px; list-style: none; padding: 0; }
+.ps-steps li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
+.ps-steps li span { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border-radius: 7px; background: #ECEEFF; color: #5136E0; font: 800 11px Inter, sans-serif; }
+.ps-box { border-radius: 12px; background: #F6F5FF; padding: 12px 14px; }

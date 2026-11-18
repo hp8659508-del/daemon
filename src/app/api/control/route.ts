@@ -288,6 +288,7 @@ export async function POST(request: Request) {
           await db.from("team_powerups").delete().in("team_id", teamIds).not("card_id", "is", null);
           await del("team_cards"); await del("penalties"); await del("team_ledger");
           await db.from("teams").update({ problem_statement: null, ps_locked: false, bingo_mode: null }).in("id", teamIds);
+          await db.from("teams").update({ ps_no: null }).in("id", teamIds);   // ignored if the column isn't there yet
           done.push("cards, penalties, problem statements");
         }
         if (parts.includes("powerups")) { await del("team_powerups"); await db.from("team_powerups").delete().in("target_team_id", teamIds); done.push("power-ups"); }
@@ -595,11 +596,20 @@ export async function POST(request: Request) {
       case "ps_set": {
         const id = str(body.team_id);
         const { data: t } = await db.from("teams").select("ps_locked").eq("id", id).maybeSingle();
-        if (t?.ps_locked) throw new Error("This problem statement was swapped and is final.");
-        const text = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
-        fail((await db.from("teams").update({ problem_statement: text || null }).eq("id", id)).error);
+        if (t?.ps_locked) throw new Error("This problem statement was swapped and is final. Unlock it first.");
+        let text = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
+        let psNo: number | null = null;
+        if (body.ps_no !== undefined && body.ps_no !== null && body.ps_no !== "") {
+          psNo = int(body.ps_no, 1, 999);
+          const { data: ps } = await db.from("problem_statements").select("no,title").eq("no", psNo).maybeSingle();
+          if (!ps) throw new Error("That problem statement number isn't in the pool.");
+          text = `PS ${String(ps.no).padStart(2, "0")} · ${ps.title}`;
+        }
+        const { error } = await db.from("teams").update({ problem_statement: text || null, ps_no: psNo }).eq("id", id);
+        if (error && /ps_no/.test(error.message)) fail((await db.from("teams").update({ problem_statement: text || null }).eq("id", id)).error);
+        else fail(error);
         if (text) await log({ team_id: id, kind: "auction", action: "granted", label: `Problem statement: ${text.slice(0, 120)}` });
-        return NextResponse.json({ ok: true, message: text ? "Problem statement saved" : "Problem statement cleared" });
+        return NextResponse.json({ ok: true, message: text ? `Allotted: ${text}` : "Problem statement cleared" });
       }
       case "ps_swap": {
         fail((await db.rpc("admin_swap_ps", { p_card: str(body.id), p_target: str(body.target_id), p_admin: user.id })).error);
