@@ -1093,7 +1093,7 @@ function TeamDrawer({ w, cmd, paddle, stageOf, staff, teamId, secret, close, onD
         </div>
 
         <DrawerCards t={t} w={w} cmd={cmd} paddle={paddle} />
-        <div className="panel mt-5 p-4"><RoundLedgers compact rows={buildLedger(t.id, w.txs, w.teamPowerups, w.cards)} baseEnd={w.settings.hackathon_end_at} /></div>
+        <div className="panel mt-5 p-4"><RoundLedgers compact rows={buildLedger(t.id, w.txs, w.teamPowerups, w.cards, w.stages)} baseEnd={w.settings.hackathon_end_at} /></div>
 
         <div className="panel mt-5 flex flex-wrap items-center gap-3 p-4">
           <KeyRound size={16} />

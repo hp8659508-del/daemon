@@ -374,7 +374,7 @@ export async function POST(request: Request) {
         let snapshot: Record<string, { pts: number; end: string | null }> = {};
         if (status === "closed") {
           const [{ data: txs }, { data: tps }, { data: s }, { data: st }] = await Promise.all([
-            db.from("transactions").select("team_id,points").in("team_id", teamIds),
+            db.from("transactions").select("*").in("team_id", teamIds),
             db.from("team_powerups").select("*"),
             db.from("event_settings").select("hackathon_end_at").eq("id", true).maybeSingle(),
             db.from("team_stages").select("team_id,activity,status"),
@@ -386,7 +386,7 @@ export async function POST(request: Request) {
             ...[...closing].map(k => { const [team_id, activity] = k.split(":"); return { team_id, activity, status: "closed" }; }),
           ];
           snapshot = Object.fromEntries(teamIds.map(id => [id, {
-            pts: (txs ?? []).filter(t => t.team_id === id).reduce((a, t) => a + Number(t.points), 0),
+            pts: (txs ?? []).filter(t => t.team_id === id && (t as { wallet?: string }).wallet !== "auction").reduce((a, t) => a + Number(t.points), 0),
             end: projectedEnd(s?.hackathon_end_at ?? null, minutesFor(id, (tps ?? []) as TeamPowerup[], stagesAfter)),
           }]));
         }

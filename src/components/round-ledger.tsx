@@ -6,7 +6,7 @@ import { useState } from "react";
  * Round ledgers: one table per round. Every row is one ability the team received,
  * with the team's deadline and points before → after it.
  */
-export type LedgerRowLite = { id: string; round: string; label: string; points_before: number; points_after: number; minutes_before: number; minutes_after: number; created_at: string };
+export type LedgerRowLite = { id: string; round: string; label: string; points_before: number; points_after: number; minutes_before: number; minutes_after: number; created_at: string; closed?: boolean };
 
 const ROUNDS = [
   { key: "quiz", label: "Rapid Fire" },
@@ -23,8 +23,9 @@ const deadline = (base: string | null, mins: number) =>
 const delta = (n: number, unit: string) => (n === 0 ? "" : `${n > 0 ? "+" : ""}${n}${unit}`);
 
 export default function RoundLedgers({ rows, baseEnd, compact = false }: { rows: LedgerRowLite[]; baseEnd: string | null; compact?: boolean }) {
-  const counts = Object.fromEntries(ROUNDS.map(r => [r.key, rows.filter(x => x.round === r.key).length]));
-  const [round, setRound] = useState<string>(ROUNDS.find(r => counts[r.key])?.key ?? "auction");
+  const counts = Object.fromEntries(ROUNDS.map(r => [r.key, rows.filter(x => x.round === r.key && !x.closed).length]));
+  const done = new Set(rows.filter(x => x.closed).map(x => x.round));
+  const [round, setRound] = useState<string>(ROUNDS.find(r => counts[r.key] || done.has(r.key))?.key ?? "auction");
   const list = rows.filter(r => r.round === round);
   return (
     <div className={compact ? "" : "panel overflow-hidden"}>
@@ -33,7 +34,7 @@ export default function RoundLedgers({ rows, baseEnd, compact = false }: { rows:
         <div className="seg" role="tablist">
           {ROUNDS.map(r => (
             <button key={r.key} role="tab" aria-selected={round === r.key} data-on={round === r.key} onClick={() => setRound(r.key)}>
-              {r.label}<span className="seg-count">{counts[r.key]}</span>
+              {done.has(r.key) && <span className="led led-closed mr-1.5" title="Round completed" />}{r.label}<span className="seg-count">{counts[r.key]}</span>
             </button>
           ))}
         </div>
@@ -54,6 +55,14 @@ export default function RoundLedgers({ rows, baseEnd, compact = false }: { rows:
             </thead>
             <tbody>
               {list.map(r => {
+                if (r.closed) return (
+                  <tr key={r.id} className="ledger-closed">
+                    <td className="num whitespace-nowrap">{clock(r.created_at)}</td>
+                    <td><span className="inline-flex items-center gap-2 font-semibold"><span className="led led-closed" /> Round completed</span></td>
+                    <td className="num" colSpan={2}>{deadline(baseEnd, r.minutes_after)}</td>
+                    <td className="num" colSpan={2}><b>{r.points_after}</b> <span className="text-[11px]">confirmed</span></td>
+                  </tr>
+                );
                 const dm = r.minutes_after - r.minutes_before, dp = r.points_after - r.points_before;
                 return (
                   <tr key={r.id}>

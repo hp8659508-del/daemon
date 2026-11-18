@@ -61,7 +61,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
       </div>
 
       <div key={tab} className="animate-rise">
-        {tab === "quiz" && <RapidFire />}
+        {tab === "quiz" && (v.stages.quiz.status === "closed" ? <RapidFireDone v={v} /> : <RapidFire />)}
         {tab === "auction" && <Stage v={v} a="auction"><AuctionLive v={v} paddle={paddle} /></Stage>}
         {tab === "spin" && <Stage v={v} a="spin"><SpinLive v={v} /></Stage>}
         {tab === "bingo" && <Stage v={v} a="bingo"><BingoCard v={v} /></Stage>}
@@ -156,6 +156,28 @@ function Readout({ icon: Icon, label, value }: { icon: typeof Coins; label: stri
       <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.2em] text-muted"><Icon size={12} />{label}</p>
       <p className="num mt-1 text-2xl font-bold">{value}</p>
     </div>
+  );
+}
+
+/* ---------------- Rapid Fire after it closes: a final record, not the quiz ---------------- */
+function RapidFireDone({ v }: { v: TeamView }) {
+  const s = v.stages.quiz;
+  const rows = v.ledger.filter(r => r.round === "quiz" && !r.closed);
+  const score = rows.reduce((a, r) => a + (r.points_after - r.points_before), 0);
+  return (
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow flex items-center gap-2"><StatusLed status="closed" /> Round completed · final record</p>
+          <h2 className="font-serif mt-1 text-4xl">Rapid Fire</h2>
+        </div>
+        <div className="flex gap-3">
+          <div className="well px-4 py-2 text-right"><p className="eyebrow">Completed</p><p className="num font-bold">{fmtTime(s.closed_at)}</p></div>
+          <div className="well px-4 py-2 text-right"><p className="eyebrow">Rapid Fire score</p><p className="num font-bold">{score}</p></div>
+        </div>
+      </div>
+      <RoundLedgers rows={v.ledger.filter(r => r.round === "quiz")} baseEnd={v.baseEnd} />
+    </section>
   );
 }
 
@@ -356,6 +378,12 @@ function Loadout({ v }: { v: TeamView }) {
   let running = 0;
   const steps = affecting.filter(p => p.confirmed).map(p => { running += p.minutes_delta; return { p, running, at: v.baseEnd ? new Date(new Date(v.baseEnd).getTime() + running * 60000).toISOString() : null }; });
   const pending = affecting.filter(p => !p.confirmed);
+  // closed rounds sit on the line as grey "Round completed" dots, in time order with the steps
+  const closedRounds = (Object.values(v.stages) as TeamView["stages"]["quiz"][]).filter(s => s.status === "closed" && s.closed_at);
+  const line = [
+    ...steps.map(st => ({ t: +new Date(st.p.created_at), step: st, round: null as null | (typeof closedRounds)[number] })),
+    ...closedRounds.map(r => ({ t: +new Date(r.closed_at as string), step: null, round: r })),
+  ].sort((a, b) => a.t - b.t);
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <MyCards v={v} />
@@ -367,9 +395,12 @@ function Loadout({ v }: { v: TeamView }) {
         <h3 className="font-display text-lg font-bold">Deadline timeline</h3>
         <ol className="mt-4 space-y-5 border-l-2 border-dashed border-silver pl-6">
           <li className="relative"><span className="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-white bg-faint shadow" /><p className="text-xs text-muted">Official deadline</p><p className="num font-bold">{fmtTime(v.baseEnd)}</p></li>
-          {steps.map(({ p, at }) => (
-            <li key={p.id} className="animate-rise relative"><span className={`absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-white shadow ${p.minutes_delta > 0 ? "bg-ok" : "bg-err"}`} />
-              <p className="text-xs text-muted">{p.name} <span className="num font-semibold text-ok">{fmtMins(p.minutes_delta)}</span></p><p className="num font-bold">{v.baseEnd ? fmtTime(at) : "Set when the clock starts"}</p></li>
+          {line.map(({ step, round }) => round ? (
+            <li key={`close-${round.activity}`} className="relative"><span className="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-white shadow" style={{ background: "#B9B5D3" }} />
+              <p className="text-xs text-muted">{BLURB[round.activity].title} · round completed</p><p className="num text-sm font-semibold text-faint">{fmtTime(round.closed_at)}{round.closing_points != null && ` · ${round.closing_points} pts confirmed`}</p></li>
+          ) : step && (
+            <li key={step.p.id} className="animate-rise relative"><span className={`absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-white shadow ${step.p.minutes_delta > 0 ? "bg-ok" : "bg-err"}`} />
+              <p className="text-xs text-muted">{step.p.name} <span className="num font-semibold text-ok">{fmtMins(step.p.minutes_delta)}</span></p><p className="num font-bold">{v.baseEnd ? fmtTime(step.at) : "Set when the clock starts"}</p></li>
           ))}
           <li className="relative"><span className="absolute -left-[33px] top-0.5 h-4 w-4 rounded-full border-2 border-white bg-cobalt shadow" /><p className="text-xs font-semibold text-cobalt-ink">Your deadline now</p><p className="num text-2xl font-black">{fmtTime(v.endAt)}</p></li>
           {pending.map(p => (
