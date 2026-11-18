@@ -242,7 +242,7 @@ function Auction({ w, cmd, paddle, stageOf, vkey, scope }: Ctx) {
   const [cell, setCell] = useState<number | null>(null);
   const [itemId, setItemId] = useState<string>(myLot?.item_id ?? items.find(i => i.is_active)?.id ?? "");
   const item = items.find(i => i.id === itemId) ?? null;
-  const min = item?.min_price ?? 0, max = item?.max_price ?? Math.max(item?.base_points ?? 0, 1) * 10, step = item?.price_step ?? 10;
+  const min = item?.min_price ?? 0, max = item?.max_price ?? Math.max(w.auctionBudget ?? 2000, 2000, (item?.base_points ?? 0) * 10), step = item?.price_step ?? 10; // no card maximum → up to a full wallet
   const [price, setPrice] = useState<number>(myLot?.item_id === itemId ? myLot.price : item?.base_points ?? min);
   const [team, setTeam] = useState("");
   const [onlyLive, setOnlyLive] = useState(true);
