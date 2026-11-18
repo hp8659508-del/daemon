@@ -878,7 +878,7 @@ function EventPanel({ w, cmd, staff, vkey, scope }: Ctx) {
       </div>
       <div className="panel p-5">
         <p className="eyebrow">Announcement banner · {venueLabel(scope)}</p>
-        <textarea className="field mt-3 h-28" maxLength={200} value={msg} onChange={e => setMsg(e.target.value)} placeholder="e.g. Bay A → move to Idea Lab for bingo in 5 min" />
+        <textarea className="field mt-3 h-28" maxLength={200} value={msg} onChange={e => setMsg(e.target.value)} placeholder="e.g. Bingo starts in 5 min — stay at your bay" />
         <div className="mt-3 flex gap-2"><button className="key flex-1" onClick={() => { setMsg(""); cmd.run({ action: "broadcast", venue: vkey === "all" ? "" : vkey, text: "" }); }}>Clear</button><button className="key-primary flex-1" onClick={() => cmd.run({ action: "broadcast", venue: vkey === "all" ? "" : vkey, text: msg })}><Radio size={14} /> Send to {venueLabel(scope)}</button></div>
         {staff.isHost && <label className="mt-6 flex items-center justify-between gap-3 text-sm"><span>Show the top 5 and each team&apos;s rank to teams</span>
           <button className="key key-sm" data-on={w.settings.leaderboard_visible} onClick={() => cmd.run({ action: "settings", leaderboard_visible: !w.settings.leaderboard_visible })}>{w.settings.leaderboard_visible ? "Visible" : "Hidden"}</button></label>}
