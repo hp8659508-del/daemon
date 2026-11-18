@@ -7,8 +7,10 @@ export type UserProfile = { id: string; role: string; team_id: string | null; mu
 
 export const getCurrentProfile = cache(async function getCurrentProfile(): Promise<UserProfile> {
   const supabase = await createClient();
-  const user = await getUserCached(supabase as never);
-  if (!user) redirect("/login");
+  const user = await getUserCached(supabase as never, { strict: true });
+  // the cookie holds a login Auth no longer accepts (e.g. a removed team): go to /login and
+  // have it cleared there, otherwise /login → /dashboard → /login loops forever
+  if (!user) redirect("/login?expired=1");
   const cached = await cachedProfile<UserProfile>(user.id, async () => {
     const { data } = await supabase.from("profiles").select("id, role, team_id, must_change_password").eq("id", user.id).maybeSingle();
     return (data as UserProfile | null) ?? null;

@@ -120,6 +120,7 @@ function LoginForm() {
               <b>{tminus}</b>
             </div>
 
+            {search.get("expired") && <p className="dh-alert mt-4">You were signed out. Please sign in again.</p>}
             {search.get("error") === "profile" && <p className="dh-alert mt-4">Your login exists but isn&apos;t linked to a team. Ask an organiser.</p>}
             {error && <p role="alert" className="dh-alert mt-4">{error}</p>}
 
