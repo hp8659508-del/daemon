@@ -51,6 +51,14 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
 
+  // The page found this login dead (account removed / token rejected): wipe the Supabase
+  // cookies and show the login form, instead of bouncing back to /dashboard.
+  if (path === "/login" && (request.nextUrl.searchParams.has("expired") || request.nextUrl.searchParams.has("error"))) {
+    const clean = NextResponse.next({ request });
+    for (const c of request.cookies.getAll()) if (c.name.startsWith("sb-")) clean.cookies.set(c.name, "", { path: "/", maxAge: 0 });
+    return clean;
+  }
+
   if (!user && path.startsWith("/dashboard")) {
     const target = request.nextUrl.clone();
     target.pathname = "/login";

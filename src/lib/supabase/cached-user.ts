@@ -8,12 +8,17 @@ import type { User } from "@supabase/supabase-js";
  * instance. Tokens are per session and expire anyway; a signed-out user's token stops
  * working here within a minute.
  */
-type Sb = { auth: { getSession: () => Promise<{ data: { session: { access_token: string } | null } }>; getUser: (jwt?: string) => Promise<{ data: { user: User | null } }> } };
+type Sb = { auth: { getSession: () => Promise<{ data: { session: { access_token: string } | null } }>; getUser: (jwt?: string) => Promise<{ data: { user: User | null }; error?: { status?: number } | null }> } };
 const tokens = new Map<string, { user: User; exp: number }>();
 const inflight = new Map<string, Promise<User | null>>();
 const TTL = 60_000;
 
-export async function getUserCached(supabase: Sb): Promise<User | null> {
+/**
+ * strict: the login is only treated as gone (null) when Auth says so (401/403/404, e.g. the
+ * account was deleted). If Auth is just busy or down, it throws instead, so the page shows
+ * "Reconnecting…" and retries rather than signing a working team out.
+ */
+export async function getUserCached(supabase: Sb, opts: { strict?: boolean } = {}): Promise<User | null> {
   const { data: { session } } = await supabase.auth.getSession(); // reads the cookie, no network unless refreshing
   const token = session?.access_token;
   if (!token) return null;
@@ -21,7 +26,8 @@ export async function getUserCached(supabase: Sb): Promise<User | null> {
   if (hit && hit.exp > Date.now()) return hit.user;
   let p = inflight.get(token);
   if (!p) {
-    p = supabase.auth.getUser(token).then(({ data }) => {
+    p = supabase.auth.getUser(token).then(({ data, error }) => {
+      if (!data.user && error && ![400, 401, 403, 404].includes(error.status ?? 0)) throw Object.assign(new Error("Auth busy"), { busy: true });
       if (data.user) {
         if (tokens.size > 20000) tokens.clear();
         tokens.set(token, { user: data.user, exp: Date.now() + TTL });
@@ -30,7 +36,8 @@ export async function getUserCached(supabase: Sb): Promise<User | null> {
     }).finally(() => inflight.delete(token));
     inflight.set(token, p);
   }
-  return p;
+  if (opts.strict) return p;
+  return p.catch(() => null);
 }
 
 /** Small per-instance cache for profile rows (role / team), 20 s. */
