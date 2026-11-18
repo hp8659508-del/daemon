@@ -573,6 +573,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, message: `Trump → ${(data as { name?: string } | null)?.name ?? "card"}` });
       }
 
+      /* ---------------- Rapid Fire score (edit by hand) ---------------- */
+      case "rf_set": {
+        const teamId = str(body.team_id);
+        const points = int(body.points, -10000, 10000);
+        const { data: old } = await db.from("transactions").select("created_at").eq("team_id", teamId).like("description", "Rapid fire:%").order("created_at").limit(1);
+        // keep the original time so the Round ledger stays in order
+        const at = old?.[0]?.created_at ?? new Date().toISOString();
+        fail((await db.from("transactions").delete().eq("team_id", teamId).like("description", "Rapid fire:%")).error);
+        if (points !== 0) {
+          const row: Record<string, unknown> = { team_id: teamId, description: "Rapid fire: Workshop quiz (set by organiser)", points, transaction_type: "adjustment", created_at: at, created_by: user.id, wallet: "main" };
+          let r = await db.from("transactions").insert(row);
+          if (r.error && /wallet/.test(r.error.message)) { delete row.wallet; r = await db.from("transactions").insert(row); }
+          fail(r.error);
+        }
+        await log({ team_id: teamId, kind: "quiz", action: "reset", label: `Rapid Fire score set to ${points} by an organiser` });
+        return NextResponse.json({ ok: true, message: `Rapid Fire score set to ${points}` });
+      }
+
       /* ---------------- undo anything on a team ---------------- */
       case "card_remove": {
         fail((await db.rpc("admin_card_remove", { p_card: str(body.id), p_admin: user.id })).error);

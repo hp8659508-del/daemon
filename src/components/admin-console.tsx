@@ -490,12 +490,21 @@ function TeamCards({ t, w, full, cmd, paddle, match }: { t: Team; w: World; full
 
 function DrawerCards({ t, w, cmd, paddle }: { t: Team; w: World; cmd: Cmd; paddle: Record<string, number> }) {
   const [pen, setPen] = useState({ minutes: "", points: "", reason: "" });
+  const rfNow = w.txs.filter(x => x.team_id === t.id && /^Rapid fire:/i.test(x.description)).reduce((n, x) => n + Number(x.points), 0);
+  const [rf, setRf] = useState(String(rfNow));
+  useEffect(() => setRf(String(rfNow)), [rfNow]);
   const issue = async () => {
     if (!pen.reason.trim() || (!Number(pen.minutes) && !Number(pen.points))) { cmd.toast("Enter minutes or points and a reason"); return; }
     if (await cmd.run({ action: "penalty", team_id: t.id, minutes: Number(pen.minutes) || 0, points: Number(pen.points) || 0, reason: pen.reason })) setPen({ minutes: "", points: "", reason: "" });
   };
   return (
     <div className="mt-5">
+      <div className="panel mb-4 flex flex-wrap items-center gap-3 p-4">
+        <Zap size={16} className="text-[#FF9A5C]" />
+        <div className="min-w-0 flex-1"><p className="font-display font-bold">Rapid Fire score</p><p className="text-xs text-muted">Main points from Round 1. Saving replaces it (it doesn&apos;t add on).</p></div>
+        <input className="field num !w-24 !py-1.5 text-right" type="number" value={rf} onChange={e => setRf(e.target.value)} />
+        <button className="key key-sm" disabled={cmd.busy || Number(rf) === rfNow || rf === ""} onClick={() => confirm(`Set ${t.team_name}'s Rapid Fire score to ${Number(rf)} (now ${rfNow})?`) && cmd.run({ action: "rf_set", team_id: t.id, points: Number(rf) })}>Save</button>
+      </div>
       <TeamCards t={t} w={w} full={w} cmd={cmd} paddle={paddle} match={() => true} />
       <div className="mt-2 flex flex-wrap gap-2">
         <input className="field !w-20 num !py-1.5" type="number" min={0} placeholder="− min" value={pen.minutes} onChange={e => setPen({ ...pen, minutes: e.target.value })} />
