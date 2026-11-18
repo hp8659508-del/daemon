@@ -13,7 +13,8 @@ export const ACTIVITIES: { key: Activity; label: string; verb: string }[] = [
 ];
 
 export type Stage = { team_id: string; activity: Activity; status: StageStatus; opened_at: string | null; closed_at: string | null; closing_points: number | null; closing_end_at: string | null };
-export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null; problem_statement: string | null; ps_locked: boolean; bingo_mode: "rows" | "columns" | null };
+export type Team = { id: string; team_name: string; username: string; bay: string | null; paddle: number | null; problem_statement: string | null; ps_locked: boolean; bingo_mode: "rows" | "columns" | null; ps_no?: number | null };
+export type PS = { no: number; title: string; goal: string; build: string[]; bonus: string | null; hint: string | null };
 export type Item = { id: string; item_name: string; base_points: number; min_price: number | null; max_price: number | null; price_step: number; quantity: number; description: string | null; powerup_id: string | null; is_active: boolean; kind: CardKind; effect: CardEffect; pool: "auction" | "spin" };
 export type LedgerRow = { id: string; team_id: string; round: "auction" | "spin" | "bingo" | "penalty"; label: string; card_id: string | null; points_before: number; points_after: number; minutes_before: number; minutes_after: number; created_at: string };
 export type TeamCard = { id: string; team_id: string; purchase_id: string | null; item_id: string | null; name: string; kind: CardKind; effect: CardEffect; source: string; status: string; detail: string | null; spent_at: string | null; created_at: string };
@@ -101,7 +102,7 @@ let sharedCache: { at: number; p: Promise<SharedPart>; gv?: number } | null = nu
 const SHARED_TTL = 1500;
 function fetchShared(db: ReturnType<typeof createAdminClient>) {
   return Promise.all([
-    db.from("teams").select("id,team_name,username,bay,paddle,problem_statement,ps_locked,bingo_mode").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
+    db.from("teams").select("*").order("paddle", { ascending: true, nullsFirst: false }).order("team_name"),
     db.from("team_stages").select("team_id,activity,status,opened_at,closed_at,closing_points,closing_end_at"),
     db.from("auction_items").select("id,item_name,base_points,min_price,max_price,price_step,quantity,description,powerup_id,is_active,kind,effect,pool,created_at").order("created_at"),
     db.from("powerups").select("*").order("created_at"),
@@ -109,6 +110,7 @@ function fetchShared(db: ReturnType<typeof createAdminClient>) {
     db.from("bingo_cells").select("*").order("idx"),
     db.from("event_settings").select("*").eq("id", true).maybeSingle(),
     db.rpc("team_balances"),
+    db.from("problem_statements").select("*").order("no"),   // optional: missing table → []
   ]);
 }
 function sharedFor(db: ReturnType<typeof createAdminClient>, fresh: boolean, gv?: number): Promise<SharedPart> {
@@ -155,7 +157,7 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
   const own = (q: any, col = "team_id") => (tid ? q.eq(col, tid) : q);
   // admins always read fresh; team screens share the cached part
   const sharedP = sharedFor(db, !tid, opts.gv);
-  const [[teams, stages, items, powerups, purchases, cells, settings, bal], [tps, txs, marks, activity, members, help, cards, pens, ledger]] = await Promise.all([sharedP, Promise.all([
+  const [[teams, stages, items, powerups, purchases, cells, settings, bal, psPool], [tps, txs, marks, activity, members, help, cards, pens, ledger]] = await Promise.all([sharedP, Promise.all([
     tid ? db.from("team_powerups").select("*").or(`team_id.eq.${tid},target_team_id.eq.${tid}`).order("created_at", { ascending: false })
         : db.from("team_powerups").select("*").order("created_at", { ascending: false }),
     tid ? db.from("transactions").select("*").eq("team_id", tid).order("created_at", { ascending: false }).limit(3000)
@@ -204,6 +206,7 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
     balances,
     auctionBalances,
     auctionBudget: budget,
+    psPool: (psPool.error ? [] : (psPool.data ?? [])) as PS[],
     cards: (cards.data ?? []) as TeamCard[],
     penalties: (pens.data ?? []) as Penalty[],
     ledger: (ledger.data ?? []) as LedgerRow[],
@@ -263,6 +266,7 @@ export function teamSlice(w: World, teamId: string) {
     }),
     venueKey: team?.bay || "all",
     problemStatement: team?.problem_statement ?? null,
+    psDetail: team?.ps_no ? w.psPool.find(p => p.no === team.ps_no) ?? null : null,
     psLocked: team?.ps_locked ?? false,
     bingoMode: team?.bingo_mode ?? null,
     cards: w.cards.filter(c => c.team_id === teamId),
