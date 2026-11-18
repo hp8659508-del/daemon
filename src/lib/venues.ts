@@ -1,7 +1,7 @@
 /** Client-safe venue constants and scoping helpers. */
 import type { World } from "@/lib/game";
 
-export const VENUES = ["Idea Lab", "Incubation Center"] as const;
+export const VENUES = ["Incubation Center"] as const; // one venue from 18 Nov: everyone is in Incubation Center
 export type Venue = (typeof VENUES)[number];
 export const UNASSIGNED = "__unassigned";
 /** Key used for per-venue live lot / broadcast. "all" = everyone. */
