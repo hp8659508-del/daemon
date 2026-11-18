@@ -8,14 +8,14 @@ export type LRow = { id: string; round: LRound; label: string; created_at: strin
 
 type Tx = { id: string; team_id: string; description: string; points: number; created_at: string; wallet?: string };
 type Pu = { id: string; team_id: string; target_team_id: string | null; name: string; minutes_delta: number; source: string; created_at: string };
-type Card = { team_id: string; name: string; source: string };
+type Card = { team_id: string; name: string; source: string; id?: string; created_at?: string };
 type StageRow = { team_id: string; activity: string; status: string; closed_at: string | null };
 
 const strip = (s: string) => s.replace(/^(Auction|Card|Bingo|Penalty):\s*/i, "").trim();
 
 export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] = [], stages: StageRow[] = []): LRow[] {
   const spinNames = new Set(cards.filter(c => c.team_id === teamId && c.source === "spin").map(c => c.name));
-  type Ev = { id: string; at: number; iso: string; round: LRound; label: string; dp: number; dm: number; base?: boolean; close?: boolean };
+  type Ev = { id: string; at: number; iso: string; round: LRound; label: string; dp: number; dm: number; base?: boolean; close?: boolean; card?: boolean };
   const ev: Ev[] = [];
   for (const t of txs) {
     if (t.team_id !== teamId) continue;
@@ -38,12 +38,19 @@ export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] 
     const round: LRound = /^Penalty:/i.test(p.name) ? "penalty" : p.source === "spin" ? "spin" : p.source === "auction" ? "auction" : p.source === "bingo" ? "bingo" : "other";
     ev.push({ id: p.id, at: +new Date(p.created_at), iso: p.created_at, round, label: strip(p.name) + (p.target_team_id && p.team_id !== teamId ? " (played on you)" : ""), dp: 0, dm: p.minutes_delta });
   }
+  // every card the team received gets a row, even ones that change no points or time
+  // (notes like "Delete/edit few lines of code"); same-moment price/effect rows merge into it
+  for (const c of cards) {
+    if (c.team_id !== teamId || !c.id || !c.created_at) continue;
+    const round: LRound = c.source === "spin" ? "spin" : c.source === "bingo" ? "bingo" : c.source === "auction" ? "auction" : "other";
+    ev.push({ id: `card-${c.id}`, at: +new Date(c.created_at), iso: c.created_at, round, label: strip(c.name), dp: 0, dm: 0, card: true });
+  }
   // a closed round ends its table with a grey "Round completed" line
   for (const st of stages) {
     if (st.team_id !== teamId || st.status !== "closed" || !st.closed_at) continue;
     ev.push({ id: `close-${st.activity}`, at: +new Date(st.closed_at), iso: st.closed_at, round: st.activity as LRound, label: "Round completed", dp: 0, dm: 0, close: true });
   }
-  ev.sort((a, b) => a.at - b.at || Number(!!a.close) - Number(!!b.close));
+  ev.sort((a, b) => a.at - b.at || Number(!!a.card) - Number(!!b.card) || Number(!!a.close) - Number(!!b.close));
 
   // one row per ability: effects of the same round within 3 s are the same event (e.g. price + its +15 min)
   const rows: LRow[] = [];
