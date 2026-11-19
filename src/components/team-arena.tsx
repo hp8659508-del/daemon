@@ -2,7 +2,7 @@
 
 import { effectText, kindLabel, phaseLabel } from "@/lib/cards";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Zap, Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
+import { Award, Zap, Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
 import RapidFire from "@/components/rapid-fire";
@@ -13,12 +13,13 @@ import { COLUMNS } from "@/lib/bingo-shared";
 import { Hourglass, LiveSync, useNow, fmtClock, fmtTime, fmtMins, StatusLed, Empty } from "@/components/ui";
 import { useBroadcastSand } from "@/components/sand-clock";
 
-type Tab = Activity | "loadout" | "history" | "team";
+type Tab = Activity | "eval" | "loadout" | "history" | "team";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "quiz", label: "Rapid Fire", icon: Zap },
   { key: "auction", label: "Auction", icon: Gavel },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
+  { key: "eval", label: "Evaluation", icon: Award },
   { key: "loadout", label: "Loadout", icon: Backpack },
   { key: "history", label: "History", icon: History },
   { key: "team", label: "Team", icon: Users },
@@ -47,8 +48,8 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
       <Instrument v={v} paddle={paddle} />
 
       <div className="rail" role="tablist">
-        {TABS.filter(t => t.key !== "quiz" || v.stages.quiz.status !== "upcoming").map(t => {
-          const st = t.key === "loadout" || t.key === "history" || t.key === "team" ? null : v.stages[t.key].status;
+        {TABS.filter(t => (t.key !== "quiz" || v.stages.quiz.status !== "upcoming") && (t.key !== "eval" || v.evaluation.published || v.evaluation.certsPublished)).map(t => {
+          const st = t.key === "loadout" || t.key === "history" || t.key === "team" || t.key === "eval" ? null : v.stages[t.key].status;
           const Icon = t.icon;
           return (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>
@@ -61,6 +62,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
       </div>
 
       <div key={tab} className="animate-rise">
+        {tab === "eval" && <EvaluationPanel v={v} />}
         {tab === "quiz" && (v.stages.quiz.status === "closed" ? <RapidFireDone v={v} /> : <RapidFire />)}
         {tab === "auction" && <Stage v={v} a="auction"><AuctionLive v={v} paddle={paddle} /></Stage>}
         {tab === "spin" && <Stage v={v} a="spin"><SpinLive v={v} /></Stage>}
@@ -156,6 +158,64 @@ function Readout({ icon: Icon, label, value }: { icon: typeof Coins; label: stri
       <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.2em] text-muted"><Icon size={12} />{label}</p>
       <p className="num mt-1 text-2xl font-bold">{value}</p>
     </div>
+  );
+}
+
+/* ---------------- Evaluation: score out of 80 + certificates (only what the organisers published) ---------------- */
+function EvaluationPanel({ v }: { v: TeamView }) {
+  const e = v.evaluation;
+  return (
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow">Final round · judges&apos; evaluation</p>
+          <h2 className="font-serif mt-1 text-4xl">Evaluation</h2>
+        </div>
+        {e.published && (
+          <div className="well px-5 py-3 text-right">
+            <p className="eyebrow">Final score</p>
+            <p className="num text-3xl font-bold">{e.total ?? "—"}<span className="text-base text-muted"> / {e.max}</span></p>
+          </div>
+        )}
+      </div>
+      {e.published ? (
+        e.total == null ? <div className="panel p-6 text-sm text-muted">Your team hasn&apos;t been evaluated yet.</div> : (
+          <>
+            {e.columns.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {e.columns.map(c => (
+                  <div key={c.key} className="panel p-4">
+                    <p className="eyebrow">{c.label}</p>
+                    <p className="num mt-1 text-2xl font-bold">{c.score ?? "—"}<span className="text-sm text-muted"> / {c.max}</span></p>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#ECEAF6]"><div className="h-full rounded-full bg-cobalt" style={{ width: `${((c.score ?? 0) / c.max) * 100}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {e.remarks && <div className="panel p-5"><p className="eyebrow">Judges&apos; remarks</p><p className="mt-2 whitespace-pre-line text-sm">{e.remarks}</p></div>}
+            <p className="text-xs text-muted">Your final score has been added to your main points.</p>
+          </>
+        )
+      ) : <div className="panel p-6 text-sm text-muted">Scores will appear here once the organisers publish them.</div>}
+
+      {e.certsPublished && (
+        <div className="panel p-5">
+          <p className="eyebrow">Certificates</p>
+          {e.certificates.length === 0 ? <p className="mt-2 text-sm text-muted">No certificates for your team yet.</p> : (
+            <ul className="mt-3 divide-y divide-[#ECEAF6]">
+              {e.certificates.map(c => (
+                <li key={c.id} className="flex flex-wrap items-center gap-3 py-3">
+                  <Award size={16} className="text-cobalt" />
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{c.label}{c.member_name ? ` · ${c.member_name}` : " · Team"}</p><p className="truncate text-xs text-muted">{c.file_name}</p></div>
+                  <a className="key key-sm" href={`/api/certificates?id=${c.id}&view=1`} target="_blank" rel="noreferrer">View</a>
+                  <a className="key key-sm" href={`/api/certificates?id=${c.id}`}>Download</a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

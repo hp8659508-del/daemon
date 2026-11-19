@@ -10,7 +10,7 @@ export const maxDuration = 60;
  * no backups, so download one before each round. Passwords are NOT included.
  */
 const TABLES = ["teams", "team_members", "team_stages", "event_settings", "transactions", "purchases", "auction_items", "powerups",
-  "team_powerups", "bingo_cells", "team_bingo", "team_cards", "penalties", "team_ledger", "quiz_sections", "quiz_questions",
+  "team_powerups", "bingo_cells", "team_bingo", "team_cards", "penalties", "team_ledger", "evaluation_scores", "certificates", "quiz_sections", "quiz_questions",
   "quiz_runs", "quiz_answers", "quiz_flags", "activity_log", "help_requests", "profiles"];
 
 export async function GET() {

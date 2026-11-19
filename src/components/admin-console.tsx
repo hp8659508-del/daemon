@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Users, Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords, Copy, Ban, ScrollText, FileDown, Printer, Zap } from "lucide-react";
+import { Award, Users, Building2, UserPlus, KeyRound, Shield, MoveRight, History, Play, Pause, RotateCcw, Timer, XCircle, CheckSquare, Gavel, Disc3, Grid3x3, Coins, Sparkles, Layers, Settings2, Minus, Plus, Hammer, Undo2, Search, Check, Eye, EyeOff, Pencil, Trash2, Radio, Swords, Copy, Ban, ScrollText, FileDown, Printer, Zap } from "lucide-react";
 import type { World, Activity, StageStatus, Team } from "@/lib/game";
 import { useCommand, LiveSync, StatusLed, fmtTime, fmtMins, Empty, useNow, fmtClock } from "@/components/ui";
 import BingoBoard from "@/components/bingo-board";
 import { useBroadcastSand } from "@/components/sand-clock";
 import MemberTiles from "@/components/member-tiles";
 import Picker from "@/components/picker";
+import EvaluationAdmin from "@/components/evaluation-admin";
 import RapidFireAdmin from "@/components/rapid-fire-admin";
 import RoundLedgers from "@/components/round-ledger";
 import { buildLedger } from "@/lib/ledger";
@@ -17,13 +18,14 @@ import { KINDS, PHASES, PERKS, effectText, kindLabel, boxName, type CardKind, ty
 import { sendLotFeed } from "@/lib/realtime";
 import { VENUES, UNASSIGNED, scopeWorld, venueKey, venueLabel } from "@/lib/venues";
 
-type Tab = "stages" | "quiz" | "cards" | "auction" | "spin" | "bingo" | "points" | "powerups" | "history" | "teams" | "event" | "staff";
+type Tab = "stages" | "quiz" | "cards" | "auction" | "spin" | "bingo" | "eval" | "points" | "powerups" | "history" | "teams" | "event" | "staff";
 const TABS: { key: Tab; label: string; icon: typeof Gavel }[] = [
   { key: "stages", label: "Rounds", icon: Layers },
   { key: "quiz", label: "Rapid Fire", icon: Zap },
   { key: "auction", label: "Auction", icon: Gavel },
   { key: "spin", label: "Spin", icon: Disc3 },
   { key: "bingo", label: "Bingo", icon: Grid3x3 },
+  { key: "eval", label: "Evaluation", icon: Award },
   { key: "points", label: "Points", icon: Coins },
   { key: "powerups", label: "Power-ups", icon: Sparkles },
   { key: "history", label: "History", icon: History },
@@ -112,6 +114,7 @@ export default function AdminConsole({ w: full, staff }: { w: World; staff: Staf
         {tab === "auction" && <Auction {...ctx} />}
         {tab === "spin" && <Spin {...ctx} />}
         {tab === "bingo" && <Bingo {...ctx} />}
+        {tab === "eval" && <EvaluationAdmin w={full} cmd={cmd} paddle={paddle} isHost={staff.isHost} />}
         {tab === "points" && <Points {...ctx} />}
         {tab === "powerups" && <Powerups {...ctx} />}
         {tab === "history" && <HistoryTab {...ctx} />}

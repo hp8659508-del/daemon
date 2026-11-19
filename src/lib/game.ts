@@ -27,7 +27,20 @@ export type Activity_ = { id: string; team_id: string | null; kind: string; acti
 export type Member = { id: string; team_id: string; role: "lead" | "member"; full_name: string; usn: string | null; department: string | null; year: string | null; phone: string | null; email: string | null; college: string | null; checked_in: boolean };
 export type Help = { id: string; team_id: string; message: string | null; status: string; created_at: string };
 export type Cell = { idx: number; label: string; points: number; is_free: boolean };
-export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null; auction_budget?: number };
+export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null; auction_budget?: number; eval_published?: boolean; eval_columns?: string[]; eval_show_remarks?: boolean; certs_published?: boolean };
+
+export const CRITERIA = [
+  { key: "impact", label: "Impact" },
+  { key: "innovation", label: "Innovation" },
+  { key: "presentation", label: "Presentation" },
+  { key: "prototype", label: "Prototype" },
+] as const;
+export type Criterion = (typeof CRITERIA)[number]["key"];
+export const CRIT_MAX = 20, EVAL_MAX = 80;
+export type EvalScore = { team_id: string; impact: number | null; innovation: number | null; presentation: number | null; prototype: number | null; remarks: string | null; updated_at: string };
+export type Certificate = { id: string; team_id: string; member_name: string | null; label: string; file_path: string; file_name: string; created_at: string };
+export const evalTotal = (e: EvalScore | null | undefined) => e ? CRITERIA.reduce((a, c) => a + (e[c.key] ?? 0), 0) : null;
+export const evalComplete = (e: EvalScore | null | undefined) => !!e && CRITERIA.every(c => e[c.key] != null);
 
 export const LINES = [
   [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
@@ -171,6 +184,11 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
         : db.from("penalties").select("*").order("created_at", { ascending: false }),
     own(db.from("team_ledger").select("*")).order("created_at"),
   ])]);
+  // v19 (optional until ui_v19_evaluation.sql is run → empty)
+  const [evals, certs] = await Promise.all([
+    own(db.from("evaluation_scores").select("*")),
+    own(db.from("certificates").select("*")).order("created_at"),
+  ]);
   const firstError = [teams, stages, items, powerups, tps, purchases, txs, cells, marks, settings, activity, members, help, cards, pens, ledger].find(r => r.error)?.error;
   if (firstError) throw new Error(firstError.message + " — run supabase/ui_v10_spin_ledger.sql (after ui_v9_cards.sql) in the Supabase SQL editor");
 
@@ -210,6 +228,8 @@ async function loadWorldRaw(opts: { teamId?: string; gv?: number } = {}) {
     cards: (cards.data ?? []) as TeamCard[],
     penalties: (pens.data ?? []) as Penalty[],
     ledger: (ledger.data ?? []) as LedgerRow[],
+    evals: (evals.error ? [] : (evals.data ?? [])) as EvalScore[],
+    certificates: (certs.error ? [] : (certs.data ?? [])) as Certificate[],
     /** Every sale in every venue (lots are shared, so 'sold' must count all of them). */
     lotSales: ((purchases.data ?? []) as Purchase[]).map(p => ({ item_id: p.item_id, team_id: p.team_id, team_name: ((teams.data ?? []) as Team[]).find(t => t.id === p.team_id)?.team_name ?? "Team" })),
   };
@@ -233,6 +253,7 @@ export function teamSlice(w: World, teamId: string) {
     balance: w.balances[teamId] ?? 0,
     auctionBalance: w.auctionBalances[teamId] ?? w.auctionBudget,
     auctionBudget: w.auctionBudget,
+    evaluation: evalFor(w, teamId),
     stages: { quiz: stageFor("quiz"), auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
     purchases: w.purchases.filter(p => p.team_id === teamId).map(p => ({ ...p, item_name: w.items.find(i => i.id === p.item_id)?.item_name ?? "Item" })),
     txs: w.txs.filter(t => t.team_id === teamId).slice(0, 80),
@@ -278,3 +299,20 @@ export function teamSlice(w: World, teamId: string) {
   };
 }
 export type TeamView = ReturnType<typeof teamSlice>;
+
+/** What a team may see of its evaluation: nothing until published; only the columns the admin shows. */
+function evalFor(w: World, teamId: string) {
+  const st = w.settings;
+  const e = w.evals.find(x => x.team_id === teamId) ?? null;
+  const cols = (st.eval_columns ?? CRITERIA.map(c => c.key)) as string[];
+  return {
+    published: !!st.eval_published,
+    certsPublished: !!st.certs_published,
+    total: st.eval_published ? evalTotal(e) : null,
+    max: EVAL_MAX,
+    columns: st.eval_published && e ? CRITERIA.filter(c => cols.includes(c.key)).map(c => ({ key: c.key, label: c.label, score: e[c.key], max: CRIT_MAX })) : [],
+    remarks: st.eval_published && st.eval_show_remarks ? e?.remarks ?? null : null,
+    // ids/labels only — files are fetched through /api/certificates, which checks publish + ownership
+    certificates: st.certs_published ? w.certificates.filter(c => c.team_id === teamId).map(c => ({ id: c.id, label: c.label, member_name: c.member_name, file_name: c.file_name })) : [],
+  };
+}

@@ -13,6 +13,7 @@ const ROUNDS = [
   { key: "auction", label: "Auction" },
   { key: "spin", label: "Spin wheel" },
   { key: "bingo", label: "Bingo" },
+  { key: "eval", label: "Evaluation" },
   { key: "penalty", label: "Penalties" },
   { key: "other", label: "Organiser" },
 ] as const;

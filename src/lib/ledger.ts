@@ -3,7 +3,7 @@
  * and deadline changes), so it always shows the full history, oldest first, with
  * points and deadline minutes BEFORE and AFTER each ability. Client-safe.
  */
-export type LRound = "quiz" | "auction" | "spin" | "bingo" | "penalty" | "other";
+export type LRound = "quiz" | "auction" | "spin" | "bingo" | "eval" | "penalty" | "other";
 export type LRow = { id: string; round: LRound; label: string; created_at: string; points_before: number; points_after: number; minutes_before: number; minutes_after: number; closed?: boolean };
 
 type Tx = { id: string; team_id: string; description: string; points: number; created_at: string; wallet?: string };
@@ -11,7 +11,7 @@ type Pu = { id: string; team_id: string; target_team_id: string | null; name: st
 type Card = { team_id: string; name: string; source: string; id?: string; created_at?: string };
 type StageRow = { team_id: string; activity: string; status: string; closed_at: string | null };
 
-const strip = (s: string) => s.replace(/^(Auction|Card|Bingo|Penalty):\s*/i, "").trim();
+const strip = (s: string) => s.replace(/^(Auction|Card|Bingo|Penalty|Evaluation):\s*/i, "").trim();
 
 export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] = [], stages: StageRow[] = []): LRow[] {
   const spinNames = new Set(cards.filter(c => c.team_id === teamId && c.source === "spin").map(c => c.name));
@@ -27,6 +27,7 @@ export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] 
     else if (/^Card:/i.test(d)) round = spinNames.has(strip(d)) ? "spin" : "auction";
     else if (/^Bingo/i.test(d)) round = "bingo";
     else if (/^Penalty:/i.test(d)) round = "penalty";
+    else if (/^Evaluation:/i.test(d)) round = "eval";
     else if (/spin/i.test(d)) round = "spin";
     const label = /^Auction:/i.test(d) ? `${strip(d)} (paid ${-t.points} auction pts)` : /^Bingo/i.test(d) ? d.replace(/^Bingo:\s*/i, "Dare: ") : strip(d);
     // auction-wallet spending never touches main points: the row shows, the points don't move

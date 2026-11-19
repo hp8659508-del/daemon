@@ -121,7 +121,7 @@ function RealtimeSync({ tables, every = 12000, jitter = 0, teamId }: { tables: s
 
 /* ---------- Admin command helper with toast ---------- */
 type Toast = { id: number; text: string; bad?: boolean };
-const READ_ONLY = new Set(["quiz_admin", "health", "live_lot", "staff_list", "secrets"]);
+const READ_ONLY = new Set(["cert_link", "cert_upload_url", "quiz_admin", "health", "live_lot", "staff_list", "secrets"]);
 
 export function useCommand() {
   const router = useRouter();
