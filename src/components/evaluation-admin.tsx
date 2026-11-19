@@ -4,7 +4,8 @@ import { useMemo, useRef, useState } from "react";
 import { Award, Eye, EyeOff, FileDown, Trash2, Upload, Check, ExternalLink } from "lucide-react";
 import Picker from "@/components/picker";
 import { createClient } from "@/lib/supabase/client";
-import { CRITERIA, CRIT_MAX, EVAL_MAX, evalTotal, evalComplete, type World, type EvalScore, type Criterion } from "@/lib/game";
+import { CRITERIA, CRIT_MAX, EVAL_MAX, evalTotal, evalComplete, type EvalScore, type Criterion } from "@/lib/evaluation";
+import type { World } from "@/lib/game";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Cmd = { run: (p: Record<string, unknown>, o?: { quiet?: boolean }) => Promise<any>; busy: boolean; toast: (t: string, bad?: boolean) => void };

@@ -183,7 +183,7 @@ function EvaluationPanel({ v }: { v: TeamView }) {
           <>
             {e.columns.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {e.columns.map(c => (
+                {e.columns.map((c: { key: string; label: string; score: number | null; max: number }) => (
                   <div key={c.key} className="panel p-4">
                     <p className="eyebrow">{c.label}</p>
                     <p className="num mt-1 text-2xl font-bold">{c.score ?? "—"}<span className="text-sm text-muted"> / {c.max}</span></p>
