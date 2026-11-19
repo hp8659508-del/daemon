@@ -30,8 +30,8 @@ export type Cell = { idx: number; label: string; points: number; is_free: boolea
 export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null; auction_budget?: number; eval_published?: boolean; eval_columns?: string[]; eval_show_remarks?: boolean; certs_published?: boolean };
 
 export const CRITERIA = [
-  { key: "impact", label: "Impact" },
-  { key: "innovation", label: "Innovation" },
+  { key: "impact", label: "Real world" },
+  { key: "innovation", label: "Unique" },
   { key: "presentation", label: "Presentation" },
   { key: "prototype", label: "Prototype" },
 ] as const;
