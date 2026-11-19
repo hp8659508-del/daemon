@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     };
 
     /* ---------- permission + venue scope, checked once for every action ---------- */
-    const HOST_ONLY = ["clock", "bay", "staff_list", "staff_save", "staff_delete", "team_move", "powerup_save", "cell_save"];
+    const HOST_ONLY = ["eval_publish", "clock", "bay", "staff_list", "staff_save", "staff_delete", "team_move", "powerup_save", "cell_save"];
     if (!isHost && HOST_ONLY.includes(body.action)) throw new Error("Only a host can do this.");
     if (!isHost && body.action === "settings") throw new Error("Only a host can change event settings.");
     if (!isHost) {
@@ -490,6 +490,9 @@ export async function POST(request: Request) {
         if ("portal_message" in body) patch.portal_message = typeof body.portal_message === "string" ? body.portal_message.slice(0, 200) || null : null;
         if ("starting_points" in body) patch.starting_points = int(body.starting_points, 0, 1000000);
         if ("auction_budget" in body) patch.auction_budget = int(body.auction_budget, 0, 10000000);
+        if ("eval_columns" in body && Array.isArray(body.eval_columns)) patch.eval_columns = (body.eval_columns as unknown[]).map(String).filter(k => ["impact", "innovation", "presentation", "prototype"].includes(k));
+        if ("eval_show_remarks" in body) patch.eval_show_remarks = Boolean(body.eval_show_remarks);
+        if ("certs_published" in body) patch.certs_published = Boolean(body.certs_published);
         if ("leaderboard_visible" in body) patch.leaderboard_visible = Boolean(body.leaderboard_visible);
         if ("live_lot" in body) patch.live_lot = body.live_lot ? { item_id: str(body.live_lot.item_id), price: int(body.live_lot.price, 0), team_ids: Array.isArray(body.live_lot.team_ids) ? body.live_lot.team_ids : undefined } : null;
         fail((await db.from("event_settings").update(patch).eq("id", true)).error);
@@ -589,6 +592,66 @@ export async function POST(request: Request) {
         }
         await log({ team_id: teamId, kind: "quiz", action: "reset", label: `Rapid Fire score set to ${points} by an organiser` });
         return NextResponse.json({ ok: true, message: `Rapid Fire score set to ${points}` });
+      }
+
+      /* ---------------- evaluation (out of 80) + certificates ---------------- */
+      case "eval_save": {
+        const teamId = str(body.team_id);
+        const mark = (k: string) => body[k] === "" || body[k] == null ? null : int(body[k], 0, 20);
+        const row = { team_id: teamId, impact: mark("impact"), innovation: mark("innovation"), presentation: mark("presentation"), prototype: mark("prototype"),
+          remarks: typeof body.remarks === "string" ? body.remarks.trim().slice(0, 600) || null : null, updated_at: new Date().toISOString(), updated_by: user.id };
+        const empty = row.impact == null && row.innovation == null && row.presentation == null && row.prototype == null && !row.remarks;
+        fail((empty ? await db.from("evaluation_scores").delete().eq("team_id", teamId) : await db.from("evaluation_scores").upsert(row)).error);
+        const total = [row.impact, row.innovation, row.presentation, row.prototype].reduce<number>((a, b) => a + (b ?? 0), 0);
+        await syncEval(db, [teamId], user.id);
+        await log({ team_id: teamId, kind: "eval", action: "marked", label: empty ? "Evaluation marks cleared" : `Evaluation marks saved: ${total}/80`, points: null });
+        return NextResponse.json({ ok: true, message: empty ? "Marks cleared" : `Saved · ${total}/80` });
+      }
+      case "eval_publish": {
+        const on = Boolean(body.on);
+        fail((await db.from("event_settings").update({ eval_published: on }).eq("id", true)).error);
+        const { data: teams } = await db.from("teams").select("id");
+        const n = await syncEval(db, (teams ?? []).map((t: { id: string }) => t.id), user.id);
+        await log({ team_id: null, kind: "eval", action: on ? "published" : "hidden", label: on ? `Evaluation published · ${n} team score(s) added to points` : "Evaluation hidden · scores taken out of points" });
+        return NextResponse.json({ ok: true, message: on ? `Published · ${n} score(s) added to main points` : "Hidden · evaluation scores removed from points" });
+      }
+      case "cert_upload_url": {
+        const teamId = str(body.team_id);
+        const name = String(body.file_name ?? "certificate").replace(/[^\w.\- ]+/g, "_").slice(-80) || "certificate";
+        if (!/\.(pdf|png|jpe?g)$/i.test(name)) throw new Error("Certificates must be PDF, PNG or JPG.");
+        const path = `${teamId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${name}`;
+        const { data, error } = await db.storage.from("certificates").createSignedUploadUrl(path);
+        if (error) throw new Error(`${error.message} — run supabase/ui_v19_evaluation.sql (it creates the private 'certificates' bucket)`);
+        return NextResponse.json({ ok: true, path, token: data.token });
+      }
+      case "cert_add": {
+        const teamId = str(body.team_id);
+        const path = str(body.path, 300);
+        if (!path.startsWith(`${teamId}/`)) throw new Error("Bad file path.");
+        fail((await db.from("certificates").insert({ team_id: teamId, file_path: path, file_name: str(body.file_name, 120),
+          label: typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 40) : "Participation",
+          member_name: typeof body.member_name === "string" && body.member_name.trim() ? body.member_name.trim().slice(0, 80) : null })).error);
+        return NextResponse.json({ ok: true, message: "Certificate uploaded" });
+      }
+      case "cert_update": {
+        const patch: Record<string, unknown> = {};
+        if ("label" in body) patch.label = String(body.label || "Participation").slice(0, 40);
+        if ("member_name" in body) patch.member_name = typeof body.member_name === "string" && body.member_name.trim() ? body.member_name.trim().slice(0, 80) : null;
+        fail((await db.from("certificates").update(patch).eq("id", str(body.id))).error);
+        return NextResponse.json({ ok: true, message: "Certificate updated" });
+      }
+      case "cert_delete": {
+        const { data: c } = await db.from("certificates").select("file_path").eq("id", str(body.id)).maybeSingle();
+        if (c?.file_path) await db.storage.from("certificates").remove([c.file_path]);
+        fail((await db.from("certificates").delete().eq("id", str(body.id))).error);
+        return NextResponse.json({ ok: true, message: "Certificate deleted" });
+      }
+      case "cert_link": {   // organisers can always open a file (read-only)
+        const { data: c } = await db.from("certificates").select("file_path,file_name").eq("id", str(body.id)).maybeSingle();
+        if (!c) throw new Error("Certificate not found.");
+        const { data, error } = await db.storage.from("certificates").createSignedUrl(c.file_path, 120);
+        fail(error);
+        return NextResponse.json({ ok: true, url: data?.signedUrl });
       }
 
       /* ---------------- undo anything on a team ---------------- */
@@ -773,4 +836,26 @@ export async function POST(request: Request) {
     if (/does not exist|schema cache|Could not find the/i.test(msg)) msg += ". The database is missing an update: run supabase/ALL_IN_ONE.sql in Supabase.";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
+}
+
+/**
+ * Evaluation → main points. While published, each scored team has exactly one
+ * "Evaluation: final score N/80" transaction; while hidden, none (so nothing leaks
+ * into points, the ledger or the standings before you publish). Returns rows added.
+ */
+async function syncEval(db: ReturnType<typeof createAdminClient>, teamIds: string[], adminId: string): Promise<number> {
+  if (!teamIds.length) return 0;
+  const [{ data: st }, { data: scores }] = await Promise.all([
+    db.from("event_settings").select("eval_published").eq("id", true).maybeSingle(),
+    db.from("evaluation_scores").select("*").in("team_id", teamIds),
+  ]);
+  const { error } = await db.from("transactions").delete().in("team_id", teamIds).like("description", "Evaluation:%");
+  if (error) throw new Error(error.message);
+  if (!st?.eval_published) return 0;
+  const rows = (scores ?? []).map((e: Record<string, number | null> & { team_id: string }) => {
+    const total = ["impact", "innovation", "presentation", "prototype"].reduce((a, k) => a + Number(e[k] ?? 0), 0);
+    return { team_id: e.team_id, description: `Evaluation: final score ${total}/80`, points: total, transaction_type: "adjustment", wallet: "main", created_by: adminId };
+  }).filter(r => r.points !== 0);
+  if (rows.length) { const r = await db.from("transactions").insert(rows); if (r.error) throw new Error(r.error.message); }
+  return rows.length;
 }
