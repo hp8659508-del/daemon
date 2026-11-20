@@ -15,6 +15,7 @@ create table if not exists public.evaluation_scores (
   updated_by   uuid
 );
 alter table public.evaluation_scores enable row level security;   -- server (service role) only
+grant all on public.evaluation_scores to postgres, service_role;
 
 -- 2) certificates: files live in a PRIVATE storage bucket; teams only get short signed links
 create table if not exists public.certificates (
@@ -28,6 +29,7 @@ create table if not exists public.certificates (
 );
 create index if not exists certificates_team on public.certificates(team_id);
 alter table public.certificates enable row level security;
+grant all on public.certificates to postgres, service_role;
 
 do $$ begin
   if to_regclass('storage.buckets') is not null then
