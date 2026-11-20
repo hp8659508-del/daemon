@@ -1,6 +1,6 @@
 export const CRITERIA = [
-  { key: "impact", label: "Impact" },
-  { key: "innovation", label: "Innovation" },
+  { key: "impact", label: "Real world" },
+  { key: "innovation", label: "Unique" },
   { key: "presentation", label: "Presentation" },
   { key: "prototype", label: "Prototype" },
 ] as const;
