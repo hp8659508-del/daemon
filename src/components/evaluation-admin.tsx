@@ -132,6 +132,7 @@ export default function EvaluationAdmin({ w, cmd, paddle, isHost }: { w: World; 
         <p className="border-t border-[#ECEAF6] p-3 text-xs text-muted">Enter saves a row. Clearing every box (and remarks) removes that team&apos;s marks. While published, any edit updates the team&apos;s main points straight away.</p>
       </section>
 
+      <Winners w={w} cmd={cmd} paddle={paddle} isHost={isHost} />
       <Certificates w={w} cmd={cmd} paddle={paddle} isHost={isHost} />
     </div>
   );
@@ -280,3 +281,45 @@ function Certificates({ w, cmd, paddle, isHost }: { w: World; cmd: Cmd; paddle: 
   );
 }
 
+/* ================= Winners: the celebration each podium team gets when it opens its screen ================= */
+function Winners({ w, cmd, paddle, isHost }: { w: World; cmd: Cmd; paddle: Record<string, number>; isHost: boolean }) {
+  const s = w.settings;
+  const [pick, setPick] = useState({ first: s.winners?.first ?? "", second: s.winners?.second ?? "", third: s.winners?.third ?? "" });
+  const opts = [{ value: "", label: "— none —" }, ...[...w.teams].sort((a, b) => (paddle[a.id] ?? 999) - (paddle[b.id] ?? 999)).map(t => ({ value: t.id, label: `#${paddle[t.id] ?? "—"} ${t.team_name}` }))];
+  const name = (id: string) => w.teams.find(t => t.id === id)?.team_name ?? "—";
+  const announce = (on: boolean) => {
+    if (on && !pick.first) { cmd.toast("Pick the 1st place team", true); return; }
+    const msg = on
+      ? `Announce the winners?\n\n1st  ${name(pick.first)}\n2nd  ${pick.second ? name(pick.second) : "—"}\n3rd  ${pick.third ? name(pick.third) : "—"}\n\nEach of these teams gets a full-screen celebration every time it opens its dashboard. Other teams see nothing.`
+      : "Hide the winners? The celebration stops showing on their screens.";
+    if (confirm(msg)) cmd.run({ action: "winners", on, ...pick });
+  };
+  const rows = [["first", "1st · Champions", "#f5c542"], ["second", "2nd · Runners-up", "#b9c0d4"], ["third", "3rd · Third place", "#d08a52"]] as const;
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="eyebrow">Winners</p>
+          <h2 className="font-display text-2xl">Celebration on the winners&apos; screens</h2>
+          <p className="mt-1 text-sm text-muted">Full screen, fireworks from every corner. It plays each time a winning team opens or refreshes its dashboard, then fades away (12 s for 1st, 9 s for 2nd and 3rd).</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${s.winners_announced ? "bg-[#E3F4EA] text-ok" : "bg-[#F3F2F8] text-muted"}`}>{s.winners_announced ? "ANNOUNCED" : "NOT ANNOUNCED"}</span>
+          {isHost && (s.winners_announced
+            ? <button className="key key-sm" disabled={cmd.busy} onClick={() => announce(false)}><EyeOff size={13} /> Hide winners</button>
+            : <button className="key key-sm" disabled={cmd.busy} onClick={() => announce(true)}><Award size={13} /> Announce winners</button>)}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {rows.map(([k, label, col]) => (
+          <div key={k} className="rounded-xl border border-[#ECEAF6] p-3">
+            <p className="mb-2 flex items-center gap-2 text-sm font-semibold"><span className="inline-block h-3 w-3 rounded-full" style={{ background: col }} />{label}</p>
+            <Picker value={pick[k]} options={opts} placeholder="Pick a team" onChange={v => setPick(p => ({ ...p, [k]: v }))} />
+          </div>
+        ))}
+      </div>
+      {s.winners_announced && JSON.stringify(pick) !== JSON.stringify({ first: s.winners?.first ?? "", second: s.winners?.second ?? "", third: s.winners?.third ?? "" }) &&
+        <p className="mt-3 text-xs text-ember">You changed the picks: press Hide, then Announce again to apply them.</p>}
+    </section>
+  );
+}
