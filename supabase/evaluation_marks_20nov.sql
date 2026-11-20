@@ -1,8 +1,7 @@
 -- Evaluation marks from "daemon hours - Google Sheets" (20 Nov).
 -- Columns: Real world (impact) · Unique (innovation) · Presentation · Prototype — 20 each, 80 total.
--- Replaces these teams' marks. If evaluation is already PUBLISHED, their main points update too.
+-- Marks exactly as in the sheet. SAVES ONLY — does not publish, does not touch points.
 -- Not in the sheet (left unmarked): #2 Boomers, #7 Firewalls, #10 GPT Warriors, #15 Mechforge.
--- #30 Aligators is in the sheet but isn't a team on the site → skipped.
 begin;
 create temp table ev(no int, name text, rw int, uq int, pr int, pt int, note text) on commit drop;
 insert into ev values
@@ -30,7 +29,8 @@ insert into ev values
  (26,'Teen-Bhai-Teeno-tabahi',10,11, 8,11, null),
  (27,'The Outliers',          11,12,12,10, null),
  (28,'TriCore',               14,13,14,13, null),
- (29,'Velocity Build',        14,14,14,14, null);
+ (29,'Velocity Build',        14,14,14,14, null),
+ (30,'Aligators',             10,13, 9,12, null);
 
 create temp table evm on commit drop as
 select e.*, t.id team_id, t.team_name, t.paddle from ev e
@@ -45,11 +45,6 @@ select team_id, rw, uq, pr, pt, note, now() from evm
 on conflict (team_id) do update set impact=excluded.impact, innovation=excluded.innovation,
   presentation=excluded.presentation, prototype=excluded.prototype, remarks=excluded.remarks, updated_at=now();
 
--- keep main points in step if scores are already published (same as the Publish button)
-delete from public.transactions x using evm m where x.team_id = m.team_id and x.description like 'Evaluation:%';
-insert into public.transactions (team_id, description, points, transaction_type, wallet)
-select team_id, 'Evaluation: final score '||(rw+uq+pr+pt)||'/80', rw+uq+pr+pt, 'adjustment', 'main' from evm
-where (select eval_published from public.event_settings where id) and rw+uq+pr+pt <> 0;
 
 insert into public.activity_log (team_id, kind, action, label)
 select team_id, 'eval', 'marked', 'Evaluation marks loaded: '||(rw+uq+pr+pt)||'/80' from evm;
