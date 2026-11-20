@@ -27,7 +27,7 @@ export type Activity_ = { id: string; team_id: string | null; kind: string; acti
 export type Member = { id: string; team_id: string; role: "lead" | "member"; full_name: string; usn: string | null; department: string | null; year: string | null; phone: string | null; email: string | null; college: string | null; checked_in: boolean };
 export type Help = { id: string; team_id: string; message: string | null; status: string; created_at: string };
 export type Cell = { idx: number; label: string; points: number; is_free: boolean };
-export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null; auction_budget?: number; eval_published?: boolean; eval_columns?: string[]; eval_show_remarks?: boolean; certs_published?: boolean };
+export type Settings = { portal_locked: boolean; portal_message: string | null; live_lots: Record<string, { item_id: string; price: number } | null>; broadcasts: Record<string, string>; hackathon_started_at: string | null; clock_paused_at: string | null; bingo_full_bonus: number; bingo_rewards: Record<string, string>; hackathon_end_at: string | null; live_lot: { item_id: string; price: number; team_ids?: string[] } | null; broadcast: string | null; bingo_line_bonus: number; leaderboard_visible: boolean; starting_points: number | null; auction_budget?: number; eval_published?: boolean; eval_columns?: string[]; eval_show_remarks?: boolean; certs_published?: boolean; winners?: { first: string | null; second: string | null; third: string | null } | null; winners_announced?: boolean };
 
 export const CRITERIA = [
   { key: "impact", label: "Real world" },
@@ -254,6 +254,9 @@ export function teamSlice(w: World, teamId: string) {
     auctionBalance: w.auctionBalances[teamId] ?? w.auctionBudget,
     auctionBudget: w.auctionBudget,
     evaluation: evalFor(w, teamId),
+    // 1 / 2 / 3 only once the organisers announce the winners; everyone else gets null
+    podium: !w.settings.winners_announced || !w.settings.winners ? null
+      : w.settings.winners.first === teamId ? 1 : w.settings.winners.second === teamId ? 2 : w.settings.winners.third === teamId ? 3 : null,
     stages: { quiz: stageFor("quiz"), auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
     purchases: w.purchases.filter(p => p.team_id === teamId).map(p => ({ ...p, item_name: w.items.find(i => i.id === p.item_id)?.item_name ?? "Item" })),
     txs: w.txs.filter(t => t.team_id === teamId).slice(0, 80),

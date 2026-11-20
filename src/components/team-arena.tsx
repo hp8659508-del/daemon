@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Award, Zap, Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
+import WinnerOverlay from "@/components/winner-overlay";
 import RapidFire from "@/components/rapid-fire";
 import { onPulse, wantFastPulse } from "@/lib/pulse";
 import RoundLedgers from "@/components/round-ledger";
@@ -43,6 +44,7 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
   );
   return (
     <div className="space-y-6">
+      {v.podium && <WinnerOverlay place={v.podium as 1 | 2 | 3} team={v.team?.team_name ?? "Your team"} />}
       {v.broadcast && <Broadcast text={v.broadcast} />}
       <HelpButton open={v.helpOpen} />
       <Instrument v={v} paddle={paddle} />
@@ -95,8 +97,9 @@ function Broadcast({ text }: { text: string }) {
     <div className="panel-tight flex items-center gap-3 overflow-hidden px-4 py-2.5">
       <span className="chip shrink-0"><Radio size={12} className="text-ember" /> ANNOUNCEMENT</span>
       <div className="relative min-w-0 flex-1 overflow-hidden">
-        <div className="ticker flex w-max gap-16 whitespace-nowrap text-sm font-medium">
-          <span>{text}</span><span aria-hidden>{text}</span>
+        {/* enters at the right edge of the bar, leaves at the left, then starts again */}
+        <div className="ticker whitespace-nowrap text-sm font-medium" style={{ ["--dur" as string]: `${Math.max(12, Math.round(text.length * 0.32 + 10))}s` }}>
+          <span>{text}</span>
         </div>
       </div>
     </div>
