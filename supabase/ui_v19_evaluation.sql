@@ -55,4 +55,12 @@ do $$ declare t text; begin
   end if;
 end $$;
 
+-- the server (service_role) must be able to read/write these; teams never touch them directly
+grant all on public.evaluation_scores to postgres, service_role;
+grant all on public.certificates      to postgres, service_role;
+
 select 'v19 evaluation ready' as status;
+
+-- v19.1 winners celebration (Admin → Evaluation → Announce winners)
+alter table public.event_settings add column if not exists winners jsonb;
+alter table public.event_settings add column if not exists winners_announced boolean not null default false;
