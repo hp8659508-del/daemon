@@ -8,9 +8,14 @@ begin;
 -- every box is worth 20 (the free centre square stays free — it's never stamped)
 update public.bingo_cells set points = 20 where not is_free;
 
--- re-price stamps already given, so every team is paid 20 per stamped box
-update public.transactions set points = 20  where description like 'Bingo: %'      and points <> 20;
-update public.transactions set points = -20 where description like 'Bingo undo: %' and points <> -20;
+-- Rebuild every team's box payments from the boxes they have stamped RIGHT NOW
+-- (no re-entering): one "Bingo: <dare>" row of +20 per stamped box, at the time it was stamped.
+-- Old per-box rows (10/15/20, undo rows) are replaced. Line / full-card bonuses are untouched.
+delete from public.transactions where description like 'Bingo: %' or description like 'Bingo undo: %';
+insert into public.transactions (team_id, description, points, transaction_type, wallet, created_by, created_at)
+select b.team_id, 'Bingo: ' || c.label, 20, 'bonus', 'main', b.marked_by, b.marked_at
+from public.team_bingo b join public.bingo_cells c on c.idx = b.idx
+where not c.is_free;
 update public.activity_log set points = 20  where kind = 'bingo' and action = 'stamped'   and points is distinct from 20;
 update public.activity_log set points = -20 where kind = 'bingo' and action = 'unstamped' and points is distinct from -20;
 
@@ -23,7 +28,8 @@ commit;
 
 select t.paddle no, t.team_name,
   (select count(*) from public.team_bingo b where b.team_id = t.id) boxes_stamped,
-  coalesce((select sum(points) from public.transactions x where x.team_id = t.id and x.description like 'Bingo%'), 0) bingo_points
+  coalesce((select sum(points) from public.transactions x where x.team_id = t.id and x.description like 'Bingo: %'), 0) box_points,
+  coalesce((select sum(points) from public.transactions x where x.team_id = t.id and x.description like 'Bingo%bonus%'), 0) line_bonus
 from public.teams t order by t.paddle;
 
 -- (2) EVALUATION -------------------------------------------------------------

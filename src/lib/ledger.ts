@@ -59,6 +59,9 @@ export function buildLedger(teamId: string, txs: Tx[], pus: Pu[], cards: Card[] 
   for (const e of ev) {
     if (e.base) { pts += e.dp; continue; }
     if (e.close) { rows.push({ id: e.id, round: e.round, label: e.label, created_at: e.iso, points_before: pts, points_after: pts, minutes_before: mins, minutes_after: mins, closed: true }); continue; }
+    // a card that only records what was already bought/won (no points, no time) belongs to
+    // that row, even if another round's row landed in between in the same seconds
+    if (e.card && e.dp === 0 && e.dm === 0 && rows.some(r => !r.closed && r.round === e.round && Math.abs(e.at - +new Date(r.created_at)) < 5000 && r.label.includes(e.label))) continue;
     const last = rows[rows.length - 1];
     if (last && !last.closed && last.round === e.round && e.at - +new Date(last.created_at) < 3000) {
       if (!last.label.includes(e.label) && !e.label.startsWith(last.label.split(" (bought")[0])) last.label += ` · ${e.label}`;
