@@ -254,9 +254,6 @@ export function teamSlice(w: World, teamId: string) {
     auctionBalance: w.auctionBalances[teamId] ?? w.auctionBudget,
     auctionBudget: w.auctionBudget,
     evaluation: evalFor(w, teamId),
-    // 1 / 2 / 3 only once the organisers announce the winners; everyone else gets null
-    podium: !w.settings.winners_announced || !w.settings.winners ? null
-      : w.settings.winners.first === teamId ? 1 : w.settings.winners.second === teamId ? 2 : w.settings.winners.third === teamId ? 3 : null,
     stages: { quiz: stageFor("quiz"), auction: stageFor("auction"), spin: stageFor("spin"), bingo: stageFor("bingo") },
     purchases: w.purchases.filter(p => p.team_id === teamId).map(p => ({ ...p, item_name: w.items.find(i => i.id === p.item_id)?.item_name ?? "Item" })),
     txs: w.txs.filter(t => t.team_id === teamId).slice(0, 80),

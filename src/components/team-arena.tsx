@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Award, Zap, Users, LifeBuoy, History, Gavel, Disc3, Grid3x3, Backpack, Lock, CheckCircle2, Trophy, Radio, Clock3, Coins, ArrowDownRight, ArrowUpRight, Swords, Sparkles } from "lucide-react";
 import type { TeamView, Activity } from "@/lib/game";
 import BingoBoard from "@/components/bingo-board";
-import WinnerOverlay from "@/components/winner-overlay";
 import RapidFire from "@/components/rapid-fire";
 import { onPulse, wantFastPulse } from "@/lib/pulse";
 import RoundLedgers from "@/components/round-ledger";
@@ -44,7 +43,6 @@ export default function TeamArena({ v, paddle }: { v: TeamView; paddle: number }
   );
   return (
     <div className="space-y-6">
-      {v.podium && <WinnerOverlay place={v.podium as 1 | 2 | 3} team={v.team?.team_name ?? "Your team"} />}
       {v.broadcast && <Broadcast text={v.broadcast} />}
       <HelpButton open={v.helpOpen} />
       <Instrument v={v} paddle={paddle} />
