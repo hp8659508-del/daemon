@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     };
 
     /* ---------- permission + venue scope, checked once for every action ---------- */
-    const HOST_ONLY = ["eval_publish", "clock", "bay", "staff_list", "staff_save", "staff_delete", "team_move", "powerup_save", "cell_save"];
+    const HOST_ONLY = ["winners", "eval_publish", "clock", "bay", "staff_list", "staff_save", "staff_delete", "team_move", "powerup_save", "cell_save"];
     if (!isHost && HOST_ONLY.includes(body.action)) throw new Error("Only a host can do this.");
     if (!isHost && body.action === "settings") throw new Error("Only a host can change event settings.");
     if (!isHost) {
@@ -607,6 +607,15 @@ export async function POST(request: Request) {
         await syncEval(db, [teamId], user.id);
         await log({ team_id: teamId, kind: "eval", action: "marked", label: empty ? "Evaluation marks cleared" : `Evaluation marks saved: ${total}/80`, points: null });
         return NextResponse.json({ ok: true, message: empty ? "Marks cleared" : `Saved · ${total}/80` });
+      }
+      case "winners": {   // announce (or hide) the podium; each winning team gets its celebration on open
+        const ids = ["first", "second", "third"].map(k => (typeof body[k] === "string" && body[k] ? String(body[k]) : null));
+        if (body.on && !ids[0]) throw new Error("Pick at least the 1st place team.");
+        if (new Set(ids.filter(Boolean)).size !== ids.filter(Boolean).length) throw new Error("A team can only hold one place.");
+        const winners = { first: ids[0], second: ids[1], third: ids[2] };
+        fail((await db.from("event_settings").update({ winners, winners_announced: Boolean(body.on) }).eq("id", true)).error);
+        await log({ team_id: null, kind: "eval", action: body.on ? "published" : "hidden", label: body.on ? "Winners announced" : "Winners hidden" });
+        return NextResponse.json({ ok: true, message: body.on ? "Winners announced · their screens celebrate on open" : "Winners hidden" });
       }
       case "eval_publish": {
         const on = Boolean(body.on);
